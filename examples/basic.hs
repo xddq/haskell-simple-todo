@@ -16,6 +16,8 @@ import Data.String (fromString)
 import Prelude ()
 import Prelude.Compat
 
+-- map here
+
 main :: IO ()
 main = scotty 3000 $ do
     -- Add any WAI middleware, they are run top-down.

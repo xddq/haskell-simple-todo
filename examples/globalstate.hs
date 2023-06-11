@@ -16,6 +16,10 @@ import Data.Default.Class
 import Data.String
 import Data.Text.Lazy (Text)
 
+
+
+
+
 import Network.Wai.Middleware.RequestLogger
 
 import Prelude ()
@@ -23,10 +27,12 @@ import Prelude.Compat
 
 import Web.Scotty.Trans
 
-newtype AppState = AppState { tickCount :: Int }
+type Todo = String
+
+newtype AppState = AppState { todo :: Todo }
 
 instance Default AppState where
-    def = AppState 0
+    def = AppState "code stuff"
 
 -- Why 'ReaderT (TVar AppState)' rather than 'StateT AppState'?
 -- With a state transformer, 'runActionToIO' (below) would have
@@ -70,13 +76,27 @@ app :: ScottyT Text WebM ()
 app = do
     middleware logStdoutDev
     get "/" $ do
-        c <- webM $ gets tickCount
-        text $ fromString $ show c
+        text "hi"
 
-    get "/plusone" $ do
-        webM $ modify $ \ st -> st { tickCount = tickCount st + 1 }
+    -- TODO: can we make this catchall? Currently have to add one block per
+    -- method for 'redirect "/"' to work
+    get "/todo" $ do
+        c <- webM $ gets todo
+        text $ fromString c
+
+    delete "/todo" $ do
+        c <- webM $ gets todo
+        text $ fromString c
+
+    -- TODO: why does "delete" not work as http verb?
+    delete "/todo" $ do
+        webM $ modify $ \ st -> st { todo = "" }
         redirect "/"
 
-    get "/plustwo" $ do
-        webM $ modify $ \ st -> st { tickCount = tickCount st + 2 }
-        redirect "/"
+    -- get "/plusone" $ do
+    --     webM $ modify $ \ st -> st { tickCount = tickCount st + 1 }
+    --     redirect "/"
+    --
+    -- get "/plustwo" $ do
+    --     webM $ modify $ \ st -> st { tickCount = tickCount st + 2 }
+    --     redirect "/"
