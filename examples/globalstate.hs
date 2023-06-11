@@ -15,6 +15,7 @@ import Control.Monad.Reader
 import Data.Default.Class
 import Data.String
 import Data.Text.Lazy (Text)
+import Data.Map as M
 
 import Network.Wai.Middleware.RequestLogger
 
