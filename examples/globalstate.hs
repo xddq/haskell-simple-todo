@@ -25,12 +25,12 @@ import Web.Scotty.Trans
 
 type Todo = String
 
--- newtype AppState = AppState { todo :: Todo }
-newtype AppState = AppState { tickCount :: Int }
+newtype AppState = AppState { todo :: Todo }
+-- newtype AppState = AppState { tickCount :: Int }
 
 instance Default AppState where
-    -- def = AppState "code stuff"
-    def = AppState 0
+    def = AppState "code stuff"
+    -- def = AppState 0
 
 -- Why 'ReaderT (TVar AppState)' rather than 'StateT AppState'?
 -- With a state transformer, 'runActionToIO' (below) would have
@@ -73,28 +73,30 @@ main = do
 app :: ScottyT Text WebM ()
 app = do
     middleware logStdoutDev
-    get "/" $ do
-        val <- webM $ gets tickCount
-        text $ print val
-
-    -- TODO: can we make this catchall? Currently have to add one block per
-    -- method for 'redirect "/"' to work
-    -- get "/todo" $ do
-    --     c <- webM $ gets todo
-    --     text $ fromString c
+    -- get "/" $ do
+    --     c <- webM $ gets tickCount
+    --     text $ fromString $ show c
     --
-    -- delete "/todo" $ do
-    --     c <- webM $ gets todo
-    --     text $ fromString c
+    get "/" $ do
+        c <- webM $ gets todo
+        text $ fromString c
 
-    -- TODO: why does "delete" not work as http verb?
-    -- delete "/todo" $ do
-    --     webM $ modify $ \ st -> st { todo = todo st "" }
-    --     redirect "/"
-
-    get "/plusone" $ do
-        webM $ modify $ \ st -> st { tickCount = tickCount st + 1 }
+    get "/todo" $ do
+        c <- webM $ gets todo
+        text $ fromString c
+    --
+    put "/todo" $ do
+        v <- param "new-todo"
+        webM $ modify $ \ st -> st { todo = v }
         redirect "/"
+
+    delete "/todo" $ do
+        webM $ modify $ \ st -> st { todo = "" }
+        redirect "/"
+
+    -- get "/plusone" $ do
+    --     webM $ modify $ \ st -> st { tickCount = 5 }
+    --     redirect "/"
     --
     -- get "/plustwo" $ do
     --     webM $ modify $ \ st -> st { tickCount = tickCount st + 2 }
