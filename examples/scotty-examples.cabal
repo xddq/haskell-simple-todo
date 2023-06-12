@@ -89,7 +89,9 @@ executable scotty-globalstate
                        stm,
                        text,
                        transformers,
-                       wai-extra
+                       wai-extra,
+                       blaze-builder,
+                       bytestring
   GHC-options:         -Wall -threaded
 
 executable scotty-gzip

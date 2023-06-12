@@ -14,8 +14,11 @@ import Control.Monad.Reader
 
 import Data.Default.Class
 import Data.String
-import Data.Text.Lazy (Text)
-import Data.Map as M
+import Data.Text.Read
+import Data.Text.Lazy (Text, strip)
+import qualified Data.Map as M
+import qualified Blaze.ByteString.Builder as B
+import qualified Data.ByteString as BS
 
 import Network.Wai.Middleware.RequestLogger
 
@@ -25,12 +28,14 @@ import Prelude.Compat
 import Web.Scotty.Trans
 
 type Todo = String
+type Id = Int
 
-newtype AppState = AppState { todo :: Todo }
+newtype AppState = AppState { todo :: M.Map Id Todo}
 -- newtype AppState = AppState { tickCount :: Int }
 
 instance Default AppState where
-    def = AppState "code stuff"
+    def = AppState $ M.fromList [(0, "code stuff"), (1,"use map")]
+    -- def = AppState $ M.fromList []
     -- def = AppState 0
 
 -- Why 'ReaderT (TVar AppState)' rather than 'StateT AppState'?
@@ -79,26 +84,49 @@ app = do
     --     text $ fromString $ show c
     --
     get "/" $ do
-        c <- webM $ gets todo
-        text $ fromString c
+        text $ fromString $ "Welcome to your todo list! You might want to query /todos instead :]"
 
-    get "/todo" $ do
+    get "/todos" $ do
         c <- webM $ gets todo
-        text $ fromString c
+        text $ strip $ fromString $ M.foldr (\ curr acc -> concat[acc, curr, "\n"] ) "" c
+
+    post "/todos/delete/:id" $ do
+        id <- param "id"
+        text id
+        -- webM $ modify $ \ st -> st { todo = M.fromList [(0,"hi")] }
+        -- TODO: find out how to get a value of type Int from a value of type
+        -- Text in Haskell.
+        webM $ modify $ \ st -> st { todo = M.delete id $ todo st }
+        -- redirect "/todos"
+
+    -- post "/echo" $ do
+    --     rd <- bodyReader
+    --     stream $ ioCopy rd $ return ()
+
+    -- put "/todo" $ do
+    --     v <- param "new-todo"
+    --     webM $ modify $ \ st -> st { todo = v }
+    --     redirect "/"
     --
-    put "/todo" $ do
-        v <- param "new-todo"
-        webM $ modify $ \ st -> st { todo = v }
-        redirect "/"
-
-    delete "/todo" $ do
-        webM $ modify $ \ st -> st { todo = "" }
-        redirect "/"
+    -- delete "/todo" $ do
+    --     webM $ modify $ \ st -> st { todo = "" }
+    --     redirect "/"
 
     -- get "/plusone" $ do
     --     webM $ modify $ \ st -> st { tickCount = 5 }
     --     redirect "/"
     --
     -- get "/plustwo" $ do
+    --                              NOTE: ticketCount st + 2 gets the tickCount
+    --                              from the state and then adds 2
     --     webM $ modify $ \ st -> st { tickCount = tickCount st + 2 }
     --     redirect "/"
+
+-- NOTE: this was copied from ./bodyecho.hs
+ioCopy :: IO BS.ByteString -> IO () -> (B.Builder -> IO ()) -> IO () -> IO ()
+ioCopy reader close write flush = step >> flush where
+   step = do chunk <- reader
+             if (BS.length chunk > 0)
+               then (write $ B.insertByteString chunk) >> step
+               else close
+
