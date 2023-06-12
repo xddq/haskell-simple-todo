@@ -1,4 +1,6 @@
-{-# LANGUAGE OverloadedStrings, GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE OverloadedStrings #-}
+
 -- An example of embedding a custom monad into
 -- Scotty's transformer stack, using ReaderT to provide access
 -- to a TVar containing global state.
@@ -9,34 +11,34 @@
 -- embedded into any MonadIO monad.
 module Main (main) where
 
+import qualified Blaze.ByteString.Builder as B
 import Control.Concurrent.STM
 import Control.Monad.Reader
-
-import Data.Default.Class
-import Data.String
-import Data.Text.Lazy (Text, strip, pack)
-import Data.Text.Lazy.Read
-import qualified Data.Map as M
-import qualified Blaze.ByteString.Builder as B
 import qualified Data.ByteString as BS
-
+import Data.Default.Class
+import qualified Data.Map.Strict as M
+import Data.String
+import Data.Text.Lazy (Text, pack, strip, unpack)
+import Data.Text.Lazy.Encoding (decodeUtf8)
+import Data.Text.Lazy.Read
 import Network.Wai.Middleware.RequestLogger
-
-import Prelude ()
 import Prelude.Compat
-
 import Web.Scotty.Trans
+import Prelude ()
 
 type Todo = String
+
 type Id = Int
 
-newtype AppState = AppState { todo :: M.Map Id Todo}
+newtype AppState = AppState {todo :: M.Map Id Todo}
+
 -- newtype AppState = AppState { tickCount :: Int }
 
 instance Default AppState where
-    def = AppState $ M.fromList [(0, "code stuff"), (1,"use map")]
-    -- def = AppState $ M.fromList []
-    -- def = AppState 0
+  def = AppState $ M.fromList [(0, "code stuff"), (1, "use map")]
+
+-- def = AppState $ M.fromList []
+-- def = AppState 0
 
 -- Why 'ReaderT (TVar AppState)' rather than 'StateT AppState'?
 -- With a state transformer, 'runActionToIO' (below) would have
@@ -48,8 +50,8 @@ instance Default AppState where
 --
 -- Also note: your monad must be an instance of 'MonadIO' for
 -- Scotty to use it.
-newtype WebM a = WebM { runWebM :: ReaderT (TVar AppState) IO a }
-    deriving (Applicative, Functor, Monad, MonadIO, MonadReader (TVar AppState))
+newtype WebM a = WebM {runWebM :: ReaderT (TVar AppState) IO a}
+  deriving (Applicative, Functor, Monad, MonadIO, MonadReader (TVar AppState))
 
 -- Scotty's monads are layered on top of our custom monad.
 -- We define this synonym for lift in order to be explicit
@@ -66,11 +68,11 @@ modify f = ask >>= liftIO . atomically . flip modifyTVar' f
 
 main :: IO ()
 main = do
-    sync <- newTVarIO def
-        -- 'runActionToIO' is called once per action.
-    let runActionToIO m = runReaderT (runWebM m) sync
+  sync <- newTVarIO def
+  -- 'runActionToIO' is called once per action.
+  let runActionToIO m = runReaderT (runWebM m) sync
 
-    scottyT 3000 runActionToIO app
+  scottyT 3000 runActionToIO app
 
 -- This app doesn't use raise/rescue, so the exception
 -- type is ambiguous. We can fix it by putting a type
@@ -78,62 +80,72 @@ main = do
 -- just do it on the entire app.
 app :: ScottyT Text WebM ()
 app = do
-    middleware logStdoutDev
-    -- get "/" $ do
-    --     c <- webM $ gets tickCount
-    --     text $ fromString $ show c
-    --
-    get "/" $ do
-        text $ fromString $ "Welcome to your todo list! You might want to query /todos instead :]"
+  middleware logStdoutDev
+  -- get "/" $ do
+  --     c <- webM $ gets tickCount
+  --     text $ fromString $ show c
+  --
+  get "/" $ do
+    text $ fromString "Welcome to your todo list! You might want to query /todos instead :]"
 
-    get "/todos" $ do
-        c <- webM $ gets todo
-        text $ strip $ fromString $ M.foldr (\ curr acc -> concat[curr, "\n", acc] ) "" c
+  get "/todos" $ do
+    c <- webM $ gets todo
+    text $ strip $ fromString $ M.foldr (\curr acc -> concat [curr, "\n", acc]) "" c
 
-    post "/todos/delete/:id" $ do
-        unparsedId <- param "id"
-        -- text id
-        let myid = decimal unparsedId
-        case myid of
-            Left err -> text $ pack err
-            Right (x,_) -> do
-              webM $ modify $ \ st -> st { todo = M.delete x $ todo st }
-              redirect "/todos"
+  -- DELETE todo
+  post "/todos/delete/:id" $ do
+    unparsedId <- param "id"
+    -- text id
+    let myid = decimal unparsedId
+    case myid of
+      Left err -> text $ pack err
+      Right (x, _) -> do
+        webM $ modify $ \st -> st {todo = M.delete x $ todo st}
+        redirect "/todos"
 
-    -- TODO: try creating todos
-    -- post "/todos" $ do
-    --     newTodo <- bodyReader
-    --     -- webM $ modify $ \ st -> st { todo = M.delete x $ todo st }
-    --     redirect "/todos"
+  -- TODO: UPDATE todo
+  -- post "/todos/:id" $ do
+  --   unparsedId <- param "id"
+  --   -- text id
+  --   let myid = decimal unparsedId
+  --   case myid of
+  --     Left err -> text $ pack err
+  --     Right (x, _) -> do
+  --       webM $ modify $ \st -> st {todo = M.delete x $ todo st}
+  --       redirect "/todos"
 
-    post "/echo" $ do
-        rd <- bodyReader
-        stream $ ioCopy rd $ return ()
+  -- CREATE todo
+  post "/todos" $ do
+    newTodo1 <- body
+    let newTodo = decodeUtf8 newTodo1
+    webM $ modify $ \st -> st {todo = M.insert (1 + (fst $ M.findMax $ todo st)) (unpack newTodo) $ todo st}
+    text newTodo
 
-    -- put "/todo" $ do
-    --     v <- param "new-todo"
-    --     webM $ modify $ \ st -> st { todo = v }
-    --     redirect "/"
-    --
-    -- delete "/todo" $ do
-    --     webM $ modify $ \ st -> st { todo = "" }
-    --     redirect "/"
+-- put "/todo" $ do
+--     v <- param "new-todo"
+--     webM $ modify $ \ st -> st { todo = v }
+--     redirect "/"
+--
+-- delete "/todo" $ do
+--     webM $ modify $ \ st -> st { todo = "" }
+--     redirect "/"
 
-    -- get "/plusone" $ do
-    --     webM $ modify $ \ st -> st { tickCount = 5 }
-    --     redirect "/"
-    --
-    -- get "/plustwo" $ do
-    --                              NOTE: ticketCount st + 2 gets the tickCount
-    --                              from the state and then adds 2
-    --     webM $ modify $ \ st -> st { tickCount = tickCount st + 2 }
-    --     redirect "/"
+-- get "/plusone" $ do
+--     webM $ modify $ \ st -> st { tickCount = 5 }
+--     redirect "/"
+--
+-- get "/plustwo" $ do
+--                              NOTE: ticketCount st + 2 gets the tickCount
+--                              from the state and then adds 2
+--     webM $ modify $ \ st -> st { tickCount = tickCount st + 2 }
+--     redirect "/"
 
 -- NOTE: this was copied from ./bodyecho.hs
 ioCopy :: IO BS.ByteString -> IO () -> (B.Builder -> IO ()) -> IO () -> IO ()
-ioCopy reader close write flush = step >> flush where
-   step = do chunk <- reader
-             if (BS.length chunk > 0)
-               then (write $ B.insertByteString chunk) >> step
-               else close
-
+ioCopy reader close write flush = step >> flush
+  where
+    step = do
+      chunk <- reader
+      if (BS.length chunk > 0)
+        then (write $ B.insertByteString chunk) >> step
+        else close
