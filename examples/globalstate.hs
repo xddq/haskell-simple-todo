@@ -26,7 +26,10 @@ import Prelude.Compat
 import Web.Scotty.Trans
 import Prelude ()
 
-type Todo = String
+data Todo = Todo
+  { _text :: String,
+    _id :: Int
+  }
 
 type Id = Int
 
@@ -35,10 +38,7 @@ newtype AppState = AppState {todo :: M.Map Id Todo}
 -- newtype AppState = AppState { tickCount :: Int }
 
 instance Default AppState where
-  def = AppState $ M.fromList [(0, "code stuff"), (1, "use map")]
-
--- def = AppState $ M.fromList []
--- def = AppState 0
+  def = AppState $ M.fromList [(0, Todo "code stuff" 0), (1, Todo "use map" 1)]
 
 -- Why 'ReaderT (TVar AppState)' rather than 'StateT AppState'?
 -- With a state transformer, 'runActionToIO' (below) would have
@@ -90,7 +90,7 @@ app = do
 
   get "/todos" $ do
     c <- webM $ gets todo
-    text $ strip $ fromString $ M.foldr (\curr acc -> concat [curr, "\n", acc]) "" c
+    text $ strip $ fromString $ M.foldr (\curr acc -> concat [_text curr, "\n", acc]) "" c
 
   -- DELETE todo
   post "/todos/delete/:id" $ do
@@ -103,42 +103,25 @@ app = do
         webM $ modify $ \st -> st {todo = M.delete x $ todo st}
         redirect "/todos"
 
-  -- TODO: UPDATE todo
-  -- post "/todos/:id" $ do
-  --   unparsedId <- param "id"
-  --   -- text id
-  --   let myid = decimal unparsedId
-  --   case myid of
-  --     Left err -> text $ pack err
-  --     Right (x, _) -> do
-  --       webM $ modify $ \st -> st {todo = M.delete x $ todo st}
-  --       redirect "/todos"
-
   -- CREATE todo
   post "/todos" $ do
     newTodo1 <- body
     let newTodo = decodeUtf8 newTodo1
-    webM $ modify $ \st -> st {todo = M.insert (1 + (fst $ M.findMax $ todo st)) (unpack newTodo) $ todo st}
+    let getIdFromState st = 1 + fst (M.findMax $ todo st)
+    webM $ modify $ \st -> st {todo = M.insert (getIdFromState st) (Todo (unpack newTodo) (getIdFromState st)) $ todo st}
+    -- probably return record with id and text here later
     text newTodo
 
--- put "/todo" $ do
---     v <- param "new-todo"
---     webM $ modify $ \ st -> st { todo = v }
---     redirect "/"
---
--- delete "/todo" $ do
---     webM $ modify $ \ st -> st { todo = "" }
---     redirect "/"
-
--- get "/plusone" $ do
---     webM $ modify $ \ st -> st { tickCount = 5 }
---     redirect "/"
---
--- get "/plustwo" $ do
---                              NOTE: ticketCount st + 2 gets the tickCount
---                              from the state and then adds 2
---     webM $ modify $ \ st -> st { tickCount = tickCount st + 2 }
---     redirect "/"
+-- TODO after adding todo as record: UPDATE todo
+-- post "/todos/:id" $ do
+--   unparsedId <- param "id"
+--   -- text id
+--   let myid = decimal unparsedId
+--   case myid of
+--     Left err -> text $ pack err
+--     Right (x, _) -> do
+--       webM $ modify $ \st -> st {todo = M.delete x $ todo st}
+--       redirect "/todos"
 
 -- NOTE: this was copied from ./bodyecho.hs
 ioCopy :: IO BS.ByteString -> IO () -> (B.Builder -> IO ()) -> IO () -> IO ()
