@@ -25,7 +25,7 @@ import Data.Text.Lazy (Text, pack, strip, unpack)
 import Data.Text.Lazy.Encoding (decodeUtf8)
 import Data.Text.Lazy.Read
 import GHC.Generics (Generic)
-import Network.HTTP.Types (status200, status400)
+import Network.HTTP.Types (status200, status400, status404)
 import Network.Wai.Middleware.RequestLogger
 import Prelude.Compat
 import Web.Scotty.Trans
@@ -53,13 +53,9 @@ instance FromJSON CreateTodoInput where
     __text <- obj .: "text"
     return (CreateTodoInput {__text = __text})
 
-instance ToJSON CreateTodoInput
-
 type Id = Int
 
 newtype AppState = AppState {todo :: M.Map Id Todo}
-
--- newtype AppState = AppState { tickCount :: Int }
 
 instance Default AppState where
   def = AppState $ M.fromList [(0, Todo "code stuff" 0), (1, Todo "use map" 1)]
@@ -108,16 +104,13 @@ todoToJsonText = fromString . unpack . decodeUtf8 . encode
 app :: ScottyT Text WebM ()
 app = do
   middleware logStdoutDev
-  -- get "/" $ do
-  --     c <- webM $ gets tickCount
-  --     text $ fromString $ show c
-  --
   get "/" $ do
     text $ fromString "Welcome to your todo list! You might want to query /todos instead :]"
 
   get "/todos" $ do
     c <- webM $ gets todo
     setHeader "Content-Type" "application/json"
+    status status200
     text $ strip $ fromString $ unpack $ decodeUtf8 $ encode $ M.foldr (:) [] c
 
   -- DELETE todo
@@ -125,15 +118,20 @@ app = do
     unparsedId <- param "id"
     -- text id
     -- TODO: check if todo exists and if it does not, return error.
-    let myid = decimal unparsedId
-    case myid of
+    case decimal unparsedId of
       Left err -> do
         status status400
         text $ pack err
-      Right (x, _) -> do
-        webM $ modify $ \st -> st {todo = M.delete x $ todo st}
-        status status200
-        text "success"
+      Right (parsedId, _rest) -> do
+        todos <- webM $ gets todo
+        case M.lookup parsedId todos of
+          Just _existingTodo -> do
+            webM $ modify $ \st -> st {todo = M.delete parsedId $ todo st}
+            status status200
+            text "success"
+          Nothing -> do
+            status status404
+            text "not found"
 
   -- CREATE todo
   post "/todos" $ do
