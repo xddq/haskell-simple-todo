@@ -4,6 +4,8 @@ NOTES
 
 ## TODOS
 
+- implement read a todo by id
+- implement update todo
 - check if todo exists when trying to delete. if it does not exist, error 404.
   - DONE
 - maybe always reponse with JSON that has some fields on error case. (e.g.
