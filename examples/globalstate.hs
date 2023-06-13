@@ -15,7 +15,7 @@ module Main (main) where
 import qualified Blaze.ByteString.Builder as B
 import Control.Concurrent.STM
 import Control.Monad.Reader
-import Data.Aeson (FromJSON, ToJSON, decode, encode)
+import Data.Aeson (FromJSON (parseJSON), ToJSON, decode, encode, withObject, (.:))
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy.Char8 as BL
 import Data.Default.Class
@@ -38,11 +38,22 @@ data Todo = Todo
   }
   deriving (Show, Generic)
 
--- TODO: drop _ when decoding
-
 instance FromJSON Todo
 
 instance ToJSON Todo
+
+-- for validating the todo we pass when creating a new todo
+data CreateTodoInput = CreateTodoInput
+  { __text :: String
+  }
+  deriving (Show, Generic)
+
+instance FromJSON CreateTodoInput where
+  parseJSON = withObject "CreateTodoInput" $ \obj -> do
+    __text <- obj .: "text"
+    return (CreateTodoInput {__text = __text})
+
+instance ToJSON CreateTodoInput
 
 type Id = Int
 
@@ -126,16 +137,19 @@ app = do
 
   -- CREATE todo
   post "/todos" $ do
-    -- TODO (perhaps later..?): payload should/could be json with field "text" as string or text
-    newTodo1 <- body
-    -- TODO (perhaps later..?) validate/parse the incoming data.
-    let newTodo = decodeUtf8 newTodo1
-    todos <- webM $ gets todo
-    let idOfNewTodo = 1 + fst (M.findMax todos)
-    let createdTodo = Todo (unpack newTodo) idOfNewTodo
-    webM $ modify $ \st -> st {todo = M.insert idOfNewTodo createdTodo $ todo st}
-    setHeader "Content-Type" "application/json"
-    text $ todoToJsonText createdTodo
+    unparsedJson <- body
+    case decode unparsedJson :: Maybe CreateTodoInput of
+      Just createTodoInput -> do
+        todos <- webM $ gets todo
+        -- MAYBE: make them functions and use as "with"
+        let idOfNewTodo = 1 + fst (M.findMax todos)
+        let createdTodo = Todo (__text createTodoInput) idOfNewTodo
+        webM $ modify $ \st -> st {todo = M.insert idOfNewTodo createdTodo $ todo st}
+        setHeader "Content-Type" "application/json"
+        text $ todoToJsonText createdTodo
+      Nothing -> do
+        status status400
+        text "invalid input"
 
 -- TODO implement updating todo
 -- post "/todos/:id" $ do
