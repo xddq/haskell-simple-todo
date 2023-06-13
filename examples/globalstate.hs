@@ -25,6 +25,7 @@ import Data.Text.Lazy (Text, pack, strip, unpack)
 import Data.Text.Lazy.Encoding (decodeUtf8)
 import Data.Text.Lazy.Read
 import GHC.Generics (Generic)
+import Network.HTTP.Types (status200, status400)
 import Network.Wai.Middleware.RequestLogger
 import Prelude.Compat
 import Web.Scotty.Trans
@@ -112,12 +113,16 @@ app = do
   post "/todos/delete/:id" $ do
     unparsedId <- param "id"
     -- text id
+    -- TODO: check if todo exists and if it does not, return error.
     let myid = decimal unparsedId
     case myid of
-      Left err -> text $ pack err
+      Left err -> do
+        status status400
+        text $ pack err
       Right (x, _) -> do
         webM $ modify $ \st -> st {todo = M.delete x $ todo st}
-        redirect "/todos"
+        status status200
+        text "success"
 
   -- CREATE todo
   post "/todos" $ do
@@ -132,7 +137,7 @@ app = do
     setHeader "Content-Type" "application/json"
     text $ todoToJsonText createdTodo
 
--- TODO after adding todo as record: UPDATE todo
+-- TODO implement updating todo
 -- post "/todos/:id" $ do
 --   unparsedId <- param "id"
 --   -- text id
@@ -141,7 +146,8 @@ app = do
 --     Left err -> text $ pack err
 --     Right (x, _) -> do
 --       webM $ modify $ \st -> st {todo = M.delete x $ todo st}
---       redirect "/todos"
+--       status status200
+--       text "success"
 
 -- NOTE: this was copied from ./bodyecho.hs
 ioCopy :: IO BS.ByteString -> IO () -> (B.Builder -> IO ()) -> IO () -> IO ()
