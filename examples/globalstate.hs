@@ -1,3 +1,4 @@
+{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE OverloadedStrings #-}
 
@@ -14,22 +15,31 @@ module Main (main) where
 import qualified Blaze.ByteString.Builder as B
 import Control.Concurrent.STM
 import Control.Monad.Reader
+import Data.Aeson (FromJSON, ToJSON, decode, encode)
 import qualified Data.ByteString as BS
+import qualified Data.ByteString.Lazy.Char8 as BL
 import Data.Default.Class
 import qualified Data.Map.Strict as M
 import Data.String
 import Data.Text.Lazy (Text, pack, strip, unpack)
 import Data.Text.Lazy.Encoding (decodeUtf8)
 import Data.Text.Lazy.Read
+import GHC.Generics (Generic)
 import Network.Wai.Middleware.RequestLogger
 import Prelude.Compat
 import Web.Scotty.Trans
 import Prelude ()
 
+-- TODO: make _text of type "Text" later
 data Todo = Todo
   { _text :: String,
     _id :: Int
   }
+  deriving (Show, Generic)
+
+instance FromJSON Todo
+
+instance ToJSON Todo
 
 type Id = Int
 
@@ -90,7 +100,8 @@ app = do
 
   get "/todos" $ do
     c <- webM $ gets todo
-    text $ strip $ fromString $ M.foldr (\curr acc -> concat [_text curr, "\n", acc]) "" c
+    setHeader "Content-Type" "application/json"
+    text $ strip $ fromString $ unpack $ decodeUtf8 $ encode $ M.foldr (:) [] c
 
   -- DELETE todo
   post "/todos/delete/:id" $ do
