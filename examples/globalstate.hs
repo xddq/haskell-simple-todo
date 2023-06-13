@@ -37,6 +37,8 @@ data Todo = Todo
   }
   deriving (Show, Generic)
 
+-- TODO: drop _ when decoding
+
 instance FromJSON Todo
 
 instance ToJSON Todo
@@ -84,6 +86,9 @@ main = do
 
   scottyT 3000 runActionToIO app
 
+todoToJsonText :: Todo -> Text
+todoToJsonText = fromString . unpack . decodeUtf8 . encode
+
 -- This app doesn't use raise/rescue, so the exception
 -- type is ambiguous. We can fix it by putting a type
 -- annotation just about anywhere. In this case, we'll
@@ -116,12 +121,16 @@ app = do
 
   -- CREATE todo
   post "/todos" $ do
+    -- TODO (perhaps later..?): payload should/could be json with field "text" as string or text
     newTodo1 <- body
+    -- TODO (perhaps later..?) validate/parse the incoming data.
     let newTodo = decodeUtf8 newTodo1
-    let getIdFromState st = 1 + fst (M.findMax $ todo st)
-    webM $ modify $ \st -> st {todo = M.insert (getIdFromState st) (Todo (unpack newTodo) (getIdFromState st)) $ todo st}
-    -- probably return record with id and text here later
-    text newTodo
+    todos <- webM $ gets todo
+    let idOfNewTodo = 1 + fst (M.findMax todos)
+    let createdTodo = Todo (unpack newTodo) idOfNewTodo
+    webM $ modify $ \st -> st {todo = M.insert idOfNewTodo createdTodo $ todo st}
+    setHeader "Content-Type" "application/json"
+    text $ todoToJsonText createdTodo
 
 -- TODO after adding todo as record: UPDATE todo
 -- post "/todos/:id" $ do
