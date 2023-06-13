@@ -53,6 +53,16 @@ instance FromJSON CreateTodoInput where
     __text <- obj .: "text"
     return (CreateTodoInput {__text = __text})
 
+-- for validating the todo we pass when updating a todo
+data UpdateTodoInput = UpdateTodoInput
+  {updateTodoText :: String}
+  deriving (Show, Generic)
+
+instance FromJSON UpdateTodoInput where
+  parseJSON = withObject "UpdateTodoInput" $ \obj -> do
+    newText <- obj .: "text"
+    return (UpdateTodoInput {updateTodoText = newText})
+
 type Id = Int
 
 newtype AppState = AppState {todo :: M.Map Id Todo}
@@ -107,6 +117,7 @@ app = do
   get "/" $ do
     text $ fromString "Welcome to your todo list! You might want to query /todos instead :]"
 
+  -- GET todos
   get "/todos" $ do
     c <- webM $ gets todo
     setHeader "Content-Type" "application/json"
@@ -116,8 +127,6 @@ app = do
   -- DELETE todo
   post "/todos/delete/:id" $ do
     unparsedId <- param "id"
-    -- text id
-    -- TODO: check if todo exists and if it does not, return error.
     case decimal unparsedId of
       Left err -> do
         status status400
@@ -149,17 +158,27 @@ app = do
         status status400
         text "invalid input"
 
--- TODO implement updating todo
--- post "/todos/:id" $ do
---   unparsedId <- param "id"
---   -- text id
---   let myid = decimal unparsedId
---   case myid of
---     Left err -> text $ pack err
---     Right (x, _) -> do
---       webM $ modify $ \st -> st {todo = M.delete x $ todo st}
---       status status200
---       text "success"
+  -- UPDATE todo
+  post "/todos/:id" $ do
+    -- TODO: fix updating todo.
+    -- - Have to fix getting the id via the path.
+    -- - Then have to check if an item with the id already exists
+    --   - fail if it doesnt
+    --   - else UPDATE (modify value for given key with function)
+    -- unparsedId <- param "id"
+    unparsedJson <- body
+    case decode unparsedJson :: Maybe UpdateTodoInput of
+      Just updateTodoInput -> do
+        todos <- webM $ gets todo
+        -- MAYBE: make them functions and use as "with"
+        let idOfNewTodo = 1 + fst (M.findMax todos)
+        let updatedTodo = Todo (updateTodoText updateTodoInput) idOfNewTodo
+        webM $ modify $ \st -> st {todo = M.insert idOfNewTodo updatedTodo $ todo st}
+        setHeader "Content-Type" "application/json"
+        text $ todoToJsonText updatedTodo
+      Nothing -> do
+        status status400
+        text "invalid input"
 
 -- NOTE: this was copied from ./bodyecho.hs
 ioCopy :: IO BS.ByteString -> IO () -> (B.Builder -> IO ()) -> IO () -> IO ()
