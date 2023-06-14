@@ -12,12 +12,9 @@
 -- embedded into any MonadIO monad.
 module Main (main) where
 
-import qualified Blaze.ByteString.Builder as B
 import Control.Concurrent.STM
 import Control.Monad.Reader
-import Data.Aeson (FromJSON (parseJSON), ToJSON, decode, encode, withObject, (.:))
-import qualified Data.ByteString as BS
-import qualified Data.ByteString.Lazy.Char8 as BL
+import Data.Aeson (FromJSON (parseJSON), ToJSON (toJSON), decode, encode, object, withObject, (.:), (.=))
 import Data.Default.Class
 import qualified Data.Map.Strict as M
 import Data.String
@@ -40,7 +37,12 @@ data Todo = Todo
 
 instance FromJSON Todo
 
-instance ToJSON Todo
+instance ToJSON Todo where
+  toJSON (Todo {_text = _text, _id = _id}) =
+    object
+      [ "text" .= _text,
+        "id" .= _id
+      ]
 
 -- for validating the todo we pass when creating a new todo
 data CreateTodoInput = CreateTodoInput
@@ -55,13 +57,14 @@ instance FromJSON CreateTodoInput where
 
 -- for validating the todo we pass when updating a todo
 data UpdateTodoInput = UpdateTodoInput
-  {updateTodoText :: String}
+  {updateTodoText :: String, updateTodoId :: Int}
   deriving (Show, Generic)
 
 instance FromJSON UpdateTodoInput where
   parseJSON = withObject "UpdateTodoInput" $ \obj -> do
     newText <- obj .: "text"
-    return (UpdateTodoInput {updateTodoText = newText})
+    newId <- obj .: "id"
+    return (UpdateTodoInput {updateTodoText = newText, updateTodoId = newId})
 
 type Id = Int
 
@@ -124,6 +127,24 @@ app = do
     status status200
     text $ strip $ fromString $ unpack $ decodeUtf8 $ encode $ M.foldr (:) [] c
 
+  -- GET todos
+  get "/todos/:id" $ do
+    unparsedId <- param "id"
+    case decimal unparsedId of
+      Left err -> do
+        status status400
+        text $ pack err
+      Right (parsedId, _rest) -> do
+        todos <- webM $ gets todo
+        case M.lookup parsedId todos of
+          Nothing -> do
+            status status404
+            text "not found"
+          Just existingTodo -> do
+            setHeader "Content-Type" "application/json"
+            status status200
+            text $ strip $ fromString $ unpack $ decodeUtf8 $ encode existingTodo
+
   -- DELETE todo
   post "/todos/delete/:id" $ do
     unparsedId <- param "id"
@@ -160,32 +181,31 @@ app = do
 
   -- UPDATE todo
   post "/todos/:id" $ do
-    -- TODO: fix updating todo.
-    -- - Have to fix getting the id via the path.
-    -- - Then have to check if an item with the id already exists
-    --   - fail if it doesnt
-    --   - else UPDATE (modify value for given key with function)
-    -- unparsedId <- param "id"
-    unparsedJson <- body
-    case decode unparsedJson :: Maybe UpdateTodoInput of
-      Just updateTodoInput -> do
-        todos <- webM $ gets todo
-        -- MAYBE: make them functions and use as "with"
-        let idOfNewTodo = 1 + fst (M.findMax todos)
-        let updatedTodo = Todo (updateTodoText updateTodoInput) idOfNewTodo
-        webM $ modify $ \st -> st {todo = M.insert idOfNewTodo updatedTodo $ todo st}
-        setHeader "Content-Type" "application/json"
-        text $ todoToJsonText updatedTodo
-      Nothing -> do
+    unparsedIdFromPath <- param "id"
+    case decimal unparsedIdFromPath of
+      Left err -> do
         status status400
-        text "invalid input"
-
--- NOTE: this was copied from ./bodyecho.hs
-ioCopy :: IO BS.ByteString -> IO () -> (B.Builder -> IO ()) -> IO () -> IO ()
-ioCopy reader close write flush = step >> flush
-  where
-    step = do
-      chunk <- reader
-      if (BS.length chunk > 0)
-        then (write $ B.insertByteString chunk) >> step
-        else close
+        text $ pack err
+      Right (parsedIdFromPath, _rest) -> do
+        unparsedJson <- body
+        case decode unparsedJson :: Maybe UpdateTodoInput of
+          Just updateTodoInput -> do
+            let idOfUpdatedTodo = updateTodoId updateTodoInput
+            if parsedIdFromPath /= idOfUpdatedTodo
+              then do
+                status status400
+                text "id in path and in body are not equal"
+              else do
+                todos <- webM $ gets todo
+                case M.lookup (updateTodoId updateTodoInput) todos of
+                  Just _existingTodo -> do
+                    let updatedTodo = Todo (updateTodoText updateTodoInput) idOfUpdatedTodo
+                    webM $ modify $ \st -> st {todo = M.insert idOfUpdatedTodo updatedTodo $ todo st}
+                    setHeader "Content-Type" "application/json"
+                    text $ todoToJsonText updatedTodo
+                  Nothing -> do
+                    status status404
+                    text "todo not found"
+          Nothing -> do
+            status status400
+            text "invalid input"
