@@ -22,13 +22,12 @@ import Data.Text.Lazy (Text, pack, strip, unpack)
 import Data.Text.Lazy.Encoding (decodeUtf8)
 import Data.Text.Lazy.Read
 import GHC.Generics (Generic)
-import Network.HTTP.Types (status200, status400, status404)
+import Network.HTTP.Types (Status, status200, status400, status404)
 import Network.Wai.Middleware.RequestLogger
 import Prelude.Compat
 import Web.Scotty.Trans
 import Prelude ()
 
--- TODO: make _text of type "Text" later
 data Todo = Todo
   { _text :: String,
     _id :: Int
@@ -43,6 +42,18 @@ instance ToJSON Todo where
       [ "text" .= _text,
         "id" .= _id
       ]
+
+-- Client facing errors. Whenever we get an error, we return additional
+-- information in this format.
+data Error = Error
+  { _errorMessage :: Text
+  }
+  deriving (Show, Generic)
+
+instance ToJSON Error where
+  toJSON (Error {_errorMessage = _errorMessage}) =
+    object
+      ["message" .= _errorMessage]
 
 -- for validating the todo we pass when creating a new todo
 data CreateTodoInput = CreateTodoInput
@@ -110,6 +121,13 @@ main = do
 todoToJsonText :: Todo -> Text
 todoToJsonText = fromString . unpack . decodeUtf8 . encode
 
+sendError :: Text -> Status -> ActionT Text WebM ()
+sendError message responseStatus = do
+  -- TODO: perhaps set header globally?
+  setHeader "Content-Type" "application/json"
+  status responseStatus
+  text $ decodeUtf8 $ encode $ Error message
+
 -- This app doesn't use raise/rescue, so the exception
 -- type is ambiguous. We can fix it by putting a type
 -- annotation just about anywhere. In this case, we'll
@@ -120,26 +138,22 @@ app = do
   get "/" $ do
     text $ fromString "Welcome to your todo list! You might want to query /todos instead :]"
 
-  -- GET todos
+  -- GET all todos
   get "/todos" $ do
     c <- webM $ gets todo
     setHeader "Content-Type" "application/json"
     status status200
     text $ strip $ fromString $ unpack $ decodeUtf8 $ encode $ M.foldr (:) [] c
 
-  -- GET todos
+  -- GET todo
   get "/todos/:id" $ do
     unparsedId <- param "id"
     case decimal unparsedId of
-      Left err -> do
-        status status400
-        text $ pack err
+      Left err -> sendError (pack err) status400
       Right (parsedId, _rest) -> do
         todos <- webM $ gets todo
         case M.lookup parsedId todos of
-          Nothing -> do
-            status status404
-            text "not found"
+          Nothing -> sendError "no todo found for given id" status404
           Just existingTodo -> do
             setHeader "Content-Type" "application/json"
             status status200
@@ -149,9 +163,7 @@ app = do
   post "/todos/delete/:id" $ do
     unparsedId <- param "id"
     case decimal unparsedId of
-      Left err -> do
-        status status400
-        text $ pack err
+      Left err -> sendError (pack err) status400
       Right (parsedId, _rest) -> do
         todos <- webM $ gets todo
         case M.lookup parsedId todos of
@@ -159,9 +171,7 @@ app = do
             webM $ modify $ \st -> st {todo = M.delete parsedId $ todo st}
             status status200
             text "success"
-          Nothing -> do
-            status status404
-            text "not found"
+          Nothing -> sendError "no todo found for given id" status404
 
   -- CREATE todo
   post "/todos" $ do
@@ -183,9 +193,7 @@ app = do
   post "/todos/:id" $ do
     unparsedIdFromPath <- param "id"
     case decimal unparsedIdFromPath of
-      Left err -> do
-        status status400
-        text $ pack err
+      Left err -> sendError (pack err) status400
       Right (parsedIdFromPath, _rest) -> do
         unparsedJson <- body
         case decode unparsedJson :: Maybe UpdateTodoInput of
@@ -203,9 +211,7 @@ app = do
                     webM $ modify $ \st -> st {todo = M.insert idOfUpdatedTodo updatedTodo $ todo st}
                     setHeader "Content-Type" "application/json"
                     text $ todoToJsonText updatedTodo
-                  Nothing -> do
-                    status status404
-                    text "todo not found"
+                  Nothing -> sendError "no todo found for given id" status404
           Nothing -> do
             status status400
             text "invalid input"

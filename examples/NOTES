@@ -11,4 +11,5 @@ NOTES
 - convert _text and _id to "text" and "id" when returning the JSON - DONE
 - fix update route - ensure that path id and payload id are equal - DONE
 - maybe always reponse with JSON that has some fields on error case. (e.g.
-  status 400, { message: "invalid input" } - TODO
+  status 400, { message: "invalid input" } - DONE
+- create function to send 404 and 400 errors - DONE
