@@ -11,7 +11,19 @@ executable todo-app
   hs-source-dirs:      app
   -- base is tied to the underlying ghc version!
   -- src: https://stackoverflow.com/questions/68558825/could-not-resolve-dependencies-while-installing-libraries-with-cabal
-  build-depends:       base >= 4.17 && < 4.18,
+  build-depends:       base >= 4.16 && < 4.17,
                        base-compat >= 0.12 && < 0.13,
-                       scotty >= 0.12 && < 0.13
+                       scotty >= 0.12 && < 0.13,
+                       data-default-class,
+                       aeson,
+                       containers,
+                       mtl,
+                       scotty,
+                       stm,
+                       text,
+                       transformers,
+                       wai-extra,
+                       blaze-builder,
+                       bytestring,
+                       http-types
   GHC-options:         -Wall -threaded
