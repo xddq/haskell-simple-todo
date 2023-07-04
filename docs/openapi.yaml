@@ -1,0 +1,180 @@
+openapi: 3.0.3
+info:
+  title: Todo App API
+  description: >-
+    RESTful API for a simple todo app written in Haskell using scotty.
+    The source code can be found
+    [here](https://github.com/xddq/haskell-simple-todo)
+  license:
+    name: BSD-3-Clause
+    url: https://opensource.org/license/BSD-3-clause/
+  version: 1.0.0
+servers:
+  - url: http://localhost:3000
+paths:
+  /todos:
+    get:
+      summary: List todos
+      description: Lists all todos
+      responses:
+        '200':
+          description: Successful operation
+          content:
+            application/json:
+               schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Todo'
+        '400':
+          description: Invalid ID supplied
+        '404':
+          description: Todo not found
+        '405':
+          description: Validation exception
+    post:
+       summary: Create todo
+       description: Creates a single todo
+       requestBody:
+         $ref: '#/components/requestBodies/CreateTodo'
+       responses:
+          '200':
+            description: successful operation
+            content:
+              application/json:
+                schema:
+                  $ref: '#/components/schemas/Todo'
+          '400':
+            description: Invalid Input
+  /todos/{todoId}:
+    get:
+      summary: Get todo by ID
+      description: Returns a single todo
+      parameters:
+        - name: todoId
+          in: path
+          description: ID of todo to return
+          required: true
+          schema:
+            type: integer
+            format: int64
+      responses:
+         '200':
+           description: successful operation
+           content:
+             application/json:
+               schema:
+                 $ref: '#/components/schemas/Todo'
+         '404':
+           description: Not found
+    patch:
+       summary: Update todo by ID
+       description: Updates a single todo
+       parameters:
+         - name: todoId
+           in: path
+           description: ID of todo to update
+           required: true
+           schema:
+             type: integer
+             format: int64
+       requestBody:
+          content:
+            application/json:
+              schema:
+                anyOf:
+                  - $ref: '#/components/schemas/UpdateTodoAll'
+                  - $ref: '#/components/schemas/UpdateTodoText'
+                  - $ref: '#/components/schemas/UpdateTodoDone'
+       responses:
+          '200':
+            description: successful operation
+            content:
+              application/json:
+                schema:
+                  $ref: '#/components/schemas/Todo'
+          '404':
+            description: Not found
+    delete:
+       summary: Delete todo by ID
+       description: Deletes a single todo
+       parameters:
+         - name: todoId
+           in: path
+           description: ID of todo to delete
+           required: true
+           schema:
+             type: integer
+             format: int64
+       responses:
+          '200':
+            description: successful operation
+            content:
+              application/json:
+                schema:
+                  $ref: '#/components/schemas/Todo'
+          '404':
+            description: Not found
+
+components:
+  schemas:
+    Todo:
+      required:
+        - text
+        - id
+        - done
+      properties:
+        id:
+          type: integer
+          format: int64
+          example: 10
+        text:
+          type: string
+          example: review pr
+        done:
+          type: boolean
+          example: false
+    UpdateTodoText:
+      description: Todo that will be updated
+      required:
+          - text
+      properties:
+        text:
+          type: string
+          example: comment pr
+    UpdateTodoDone:
+      description: Todo that will be updated
+      required:
+          - done
+      properties:
+        done:
+          type: boolean
+          example: false
+    UpdateTodoAll:
+      description: Todo that will be updated
+      required:
+          - done
+          - text
+      properties:
+        text:
+          type: string
+          example: review pr
+        done:
+          type: boolean
+          example: false
+  requestBodies:
+    CreateTodo:
+      description: Todo that will be created
+      content:
+        application/json:
+          schema:
+            required:
+              - text
+              - done
+            properties:
+              text:
+                type: string
+                example: review pr
+              done:
+                type: boolean
+                example: false
+
