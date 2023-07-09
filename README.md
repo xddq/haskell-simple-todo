@@ -44,9 +44,6 @@ not strictly planned since we both have other priorities.
   [postgresql-simple](https://hackage.haskell.org/package/postgresql-simple)
 looks decent, but we have no experience with any library so this is just a
 guess.
-- Figure out how to parse "partial data" for todos. E.g. How can we use aeson to
-  update a todo that just has a "text" attribute set, or just has a "done"
-attribute set. See ./app/Main.hs l:73.
 
 Created by @vimpostor and @xddq in between the talks at ZuriHac 23 to at least
 get our feet wet with some Haskell :p.
