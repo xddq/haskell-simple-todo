@@ -71,23 +71,15 @@ instance FromJSON CreateTodoInput where
     return (CreateTodoInput {__text = __text, __done = __done})
 
 -- TODO: adapt so here we can have have either updateTodoText or updateTodoDone or both
-data UpdateTodoInput
-  = UpdateTodoInput
-      {updateTodoText :: String, updateTodoDone :: Bool}
-  | UpdateTodoInputText {updateTodoText :: String}
-  | UpdateTodoInputDone {updateTodoDone :: Bool}
-  | Error Text
+data UpdateTodoInput = UpdateTodoInput
+  {updateTodoText :: Maybe String, updateTodoDone :: Maybe Bool}
   deriving (Show, Generic)
 
 instance FromJSON UpdateTodoInput where
   parseJSON = withObject "UpdateTodoInput" $ \obj -> do
-    maybeNewText <- obj .:? "text"
-    maybeNewDone <- obj .:? "done"
-    case (maybeNewText, maybeNewDone) of
-      (Just newText, Just newDone) -> return (UpdateTodoInput {updateTodoText = newText, updateTodoDone = newDone})
-      (Just newText, Nothing) -> return (UpdateTodoInputText {updateTodoText = newText})
-      (Nothing, Just newDone) -> return (UpdateTodoInputDone {updateTodoDone = newDone})
-      (Nothing, Nothing) -> return (Error "nothing to update")
+    newText <- obj .:? "text"
+    newDone <- obj .:? "done"
+    return (UpdateTodoInput {updateTodoText = newText, updateTodoDone = newDone})
 
 type Id = Int
 
@@ -129,6 +121,18 @@ main = do
   let runActionToIO m = runReaderT (runWebM m) sync
 
   scottyT 3000 runActionToIO app
+
+-- TODO: How is this done "correctly"? With this approach, we would need a lot
+-- of different cases if we had e.g. 5 optional attributes..?
+updateTodo :: Todo -> UpdateTodoInput -> Todo
+updateTodo currentTodo newTodo = do
+  let newTodoText = updateTodoText newTodo
+  let newTodoDone = updateTodoDone newTodo
+  case (newTodoText, newTodoDone) of
+    (Just newText, Just newDone) -> Todo newText (_id currentTodo) newDone
+    (Just newText, Nothing) -> Todo newText (_id currentTodo) (_done currentTodo)
+    (Nothing, Just newDone) -> Todo (_text currentTodo) (_id currentTodo) newDone
+    (Nothing, Nothing) -> currentTodo
 
 todoToJsonText :: Todo -> Text
 todoToJsonText = fromString . unpack . decodeUtf8 . encode
@@ -213,8 +217,8 @@ app = do
           Just updateTodoInput -> do
             todos <- webM $ gets todo
             case M.lookup idOfTodoToBeUpdated todos of
-              Just _existingTodo -> do
-                let updatedTodo = Todo (updateTodoText updateTodoInput) idOfTodoToBeUpdated (updateTodoDone updateTodoInput)
+              Just currentTodo -> do
+                let updatedTodo = updateTodo currentTodo updateTodoInput
                 webM $ modify $ \st -> st {todo = M.insert idOfTodoToBeUpdated updatedTodo $ todo st}
                 setHeader "Content-Type" "application/json"
                 text $ todoToJsonText updatedTodo
