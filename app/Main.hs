@@ -23,8 +23,10 @@ import Data.Text.Lazy.Encoding (decodeUtf8)
 import Data.Text.Lazy.Read
 import GHC.Generics (Generic)
 import Network.HTTP.Types (Status, status200, status400, status404)
+import Network.Wai.Middleware.Cors
 import Network.Wai.Middleware.RequestLogger
 import Prelude.Compat
+import Web.Scotty.Internal.Types (Middleware)
 import Web.Scotty.Trans
 import Prelude ()
 
@@ -144,6 +146,17 @@ sendError message responseStatus = do
   status responseStatus
   text $ decodeUtf8 $ encode $ ApiError message
 
+-- TODO: why is this not working?
+-- allowCors :: Middleware
+allowCors = cors (const $ Just appCorsResourcePolicy)
+
+appCorsResourcePolicy :: CorsResourcePolicy
+appCorsResourcePolicy =
+  simpleCorsResourcePolicy
+    { corsMethods = ["OPTIONS", "GET", "PATCH", "POST", "DELETE"],
+      corsRequestHeaders = ["Authorization", "Content-Type"]
+    }
+
 -- This app doesn't use raise/rescue, so the exception
 -- type is ambiguous. We can fix it by putting a type
 -- annotation just about anywhere. In this case, we'll
@@ -151,6 +164,8 @@ sendError message responseStatus = do
 app :: ScottyT Text WebM ()
 app = do
   middleware logStdoutDev
+  middleware allowCors
+
   get "/" $ do
     text $ fromString "Welcome to your todo list! You might want to query /todos instead :]"
 

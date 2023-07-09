@@ -22,6 +22,7 @@ executable todo-app
                        stm,
                        text,
                        transformers,
+                       wai-cors,
                        wai-extra,
                        blaze-builder,
                        bytestring,
