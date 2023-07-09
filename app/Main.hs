@@ -14,7 +14,7 @@ module Main (main) where
 
 import Control.Concurrent.STM
 import Control.Monad.Reader
-import Data.Aeson (FromJSON (parseJSON), ToJSON (toJSON), decode, encode, object, withObject, (.:), (.=))
+import Data.Aeson (FromJSON (parseJSON), ToJSON (toJSON), decode, encode, object, withObject, (.:), (.:?), (.=))
 import Data.Default.Class
 import qualified Data.Map.Strict as M
 import Data.String
@@ -47,13 +47,13 @@ instance ToJSON Todo where
 
 -- Client facing errors. Whenever we get an error, we return additional
 -- information in this format.
-data Error = Error
+data ApiError = ApiError
   { _errorMessage :: Text
   }
   deriving (Show, Generic)
 
-instance ToJSON Error where
-  toJSON (Error {_errorMessage = _errorMessage}) =
+instance ToJSON ApiError where
+  toJSON (ApiError {_errorMessage = _errorMessage}) =
     object
       ["message" .= _errorMessage]
 
@@ -71,15 +71,23 @@ instance FromJSON CreateTodoInput where
     return (CreateTodoInput {__text = __text, __done = __done})
 
 -- TODO: adapt so here we can have have either updateTodoText or updateTodoDone or both
-data UpdateTodoInput = UpdateTodoInput
-  {updateTodoText :: String, updateTodoDone :: Bool}
+data UpdateTodoInput
+  = UpdateTodoInput
+      {updateTodoText :: String, updateTodoDone :: Bool}
+  | UpdateTodoInputText {updateTodoText :: String}
+  | UpdateTodoInputDone {updateTodoDone :: Bool}
+  | Error Text
   deriving (Show, Generic)
 
 instance FromJSON UpdateTodoInput where
   parseJSON = withObject "UpdateTodoInput" $ \obj -> do
-    newText <- obj .: "text"
-    newDone <- obj .: "done"
-    return (UpdateTodoInput {updateTodoText = newText, updateTodoDone = newDone})
+    maybeNewText <- obj .:? "text"
+    maybeNewDone <- obj .:? "done"
+    case (maybeNewText, maybeNewDone) of
+      (Just newText, Just newDone) -> return (UpdateTodoInput {updateTodoText = newText, updateTodoDone = newDone})
+      (Just newText, Nothing) -> return (UpdateTodoInputText {updateTodoText = newText})
+      (Nothing, Just newDone) -> return (UpdateTodoInputDone {updateTodoDone = newDone})
+      (Nothing, Nothing) -> return (Error "nothing to update")
 
 type Id = Int
 
@@ -130,7 +138,7 @@ sendError message responseStatus = do
   -- TODO: perhaps set header globally?
   setHeader "Content-Type" "application/json"
   status responseStatus
-  text $ decodeUtf8 $ encode $ Error message
+  text $ decodeUtf8 $ encode $ ApiError message
 
 -- This app doesn't use raise/rescue, so the exception
 -- type is ambiguous. We can fix it by putting a type
