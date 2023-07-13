@@ -21,13 +21,13 @@ import Data.String
 import Data.Text.Lazy (Text, pack, strip, unpack)
 import Data.Text.Lazy.Encoding (decodeUtf8)
 import Data.Text.Lazy.Read
+import Database.PostgreSQL.Simple
 import GHC.Generics (Generic)
 import Network.HTTP.Types (Status, status200, status400, status404)
 import Network.Wai.Middleware.Cors
 import Network.Wai.Middleware.RequestLogger
 import Prelude.Compat
-import Web.Scotty.Internal.Types (Middleware)
-import Web.Scotty.Trans
+import Web.Scotty
 import Prelude ()
 
 data Todo = Todo
@@ -83,68 +83,114 @@ instance FromJSON UpdateTodoInput where
     newDone <- obj .:? "done"
     return (UpdateTodoInput {updateTodoText = newText, updateTodoDone = newDone})
 
-type Id = Int
-
-newtype AppState = AppState {todo :: M.Map Id Todo}
-
-instance Default AppState where
-  def = AppState $ M.fromList [(0, Todo "code stuff" 0 False), (1, Todo "use map" 1 False)]
-
--- Why 'ReaderT (TVar AppState)' rather than 'StateT AppState'?
--- With a state transformer, 'runActionToIO' (below) would have
--- to provide the state to _every action_, and save the resulting
--- state, using an MVar. This means actions would be blocking,
--- effectively meaning only one request could be serviced at a time.
--- The 'ReaderT' solution means only actions that actually modify
--- the state need to block/retry.
---
--- Also note: your monad must be an instance of 'MonadIO' for
--- Scotty to use it.
-newtype WebM a = WebM {runWebM :: ReaderT (TVar AppState) IO a}
-  deriving (Applicative, Functor, Monad, MonadIO, MonadReader (TVar AppState))
-
--- Scotty's monads are layered on top of our custom monad.
--- We define this synonym for lift in order to be explicit
--- about when we are operating at the 'WebM' layer.
-webM :: MonadTrans t => WebM a -> t WebM a
-webM = lift
-
--- Some helpers to make this feel more like a state monad.
-gets :: (AppState -> b) -> WebM b
-gets f = ask >>= liftIO . readTVarIO >>= return . f
-
-modify :: (AppState -> AppState) -> WebM ()
-modify f = ask >>= liftIO . atomically . flip modifyTVar' f
-
 main :: IO ()
 main = do
-  sync <- newTVarIO def
-  -- 'runActionToIO' is called once per action.
-  let runActionToIO m = runReaderT (runWebM m) sync
+  conn <- connect defaultConnectInfo {connectHost = "localhost", connectDatabase = "todo-app", connectUser = "psql", connectPassword = "psql"}
 
-  scottyT 3000 runActionToIO app
+  scotty 3000 $ do
+    -- Add any WAI middleware, they are run top-down.
+    middleware logStdoutDev
+    middleware allowCors
+
+    get "/" $ do
+      text $ fromString "Welcome to your todo list! You might want to query /todos instead :]"
+
+    get "/4" $ do
+      [Only result] <- liftIO (query_ conn "select 2 + 2" :: IO [Only Int])
+      text $ pack $ show result
+
+-- -- GET all todos
+-- get "/todos" $ do
+--   c <- webM $ gets todo
+--   setHeader "Content-Type" "application/json"
+--   status status200
+--   text $ strip $ fromString $ unpack $ decodeUtf8 $ encode $ M.foldr (:) [] c
+--
+-- -- GET todo
+-- get "/todos/:id" $ do
+--   unparsedId <- param "id"
+--   case decimal unparsedId of
+--     Left err -> sendError (pack err) status400
+--     Right (parsedId, _rest) -> do
+--       todos <- webM $ gets todo
+--       case M.lookup parsedId todos of
+--         Nothing -> sendError "no todo found for given id" status404
+--         Just existingTodo -> do
+--           setHeader "Content-Type" "application/json"
+--           status status200
+--           text $ strip $ fromString $ unpack $ decodeUtf8 $ encode existingTodo
+--
+-- -- DELETE todo
+-- delete "/todos/:id" $ do
+--   unparsedId <- param "id"
+--   case decimal unparsedId of
+--     Left err -> sendError (pack err) status400
+--     Right (parsedId, _rest) -> do
+--       todos <- webM $ gets todo
+--       case M.lookup parsedId todos of
+--         Just toDeleteTodo -> do
+--           webM $ modify $ \st -> st {todo = M.delete parsedId $ todo st}
+--           status status200
+--           setHeader "Content-Type" "application/json"
+--           text $ strip $ fromString $ unpack $ decodeUtf8 $ encode toDeleteTodo
+--         Nothing -> sendError "no todo found for given id" status404
+--
+-- -- CREATE todo
+-- post "/todos" $ do
+--   unparsedJson <- body
+--   case decode unparsedJson :: Maybe CreateTodoInput of
+--     Just createTodoInput -> do
+--       todos <- webM $ gets todo
+--       -- MAYBE: make them functions and use as "with"
+--       let idOfNewTodo = 1 + fst (M.findMax todos)
+--       let createdTodo = Todo (__text createTodoInput) idOfNewTodo False
+--       webM $ modify $ \st -> st {todo = M.insert idOfNewTodo createdTodo $ todo st}
+--       setHeader "Content-Type" "application/json"
+--       text $ todoToJsonText createdTodo
+--     Nothing -> do
+--       status status400
+--       text "invalid input"
+--
+-- -- UPDATE todo
+-- patch "/todos/:id" $ do
+--   unparsedIdFromPath <- param "id"
+--   case decimal unparsedIdFromPath of
+--     Left err -> sendError (pack err) status400
+--     Right (idOfTodoToBeUpdated, _rest) -> do
+--       unparsedJson <- body
+--       case decode unparsedJson :: Maybe UpdateTodoInput of
+--         Just updateTodoInput -> do
+--           todos <- webM $ gets todo
+--           case M.lookup idOfTodoToBeUpdated todos of
+--             Just currentTodo -> do
+--               let updatedTodo = updateTodo currentTodo updateTodoInput
+--               webM $ modify $ \st -> st {todo = M.insert idOfTodoToBeUpdated updatedTodo $ todo st}
+--               setHeader "Content-Type" "application/json"
+--               text $ todoToJsonText updatedTodo
+--             Nothing -> sendError "no todo found for given id" status404
+--         Nothing -> sendError "invalid input" status400
 
 -- TODO: How is this done "correctly"? With this approach, we would need a lot
 -- of different cases if we had e.g. 5 optional attributes..?
-updateTodo :: Todo -> UpdateTodoInput -> Todo
-updateTodo currentTodo newTodo = do
-  let newTodoText = updateTodoText newTodo
-  let newTodoDone = updateTodoDone newTodo
-  case (newTodoText, newTodoDone) of
-    (Just newText, Just newDone) -> Todo newText (_id currentTodo) newDone
-    (Just newText, Nothing) -> Todo newText (_id currentTodo) (_done currentTodo)
-    (Nothing, Just newDone) -> Todo (_text currentTodo) (_id currentTodo) newDone
-    (Nothing, Nothing) -> currentTodo
+-- updateTodo :: Todo -> UpdateTodoInput -> Todo
+-- updateTodo currentTodo newTodo = do
+--   let newTodoText = updateTodoText newTodo
+--   let newTodoDone = updateTodoDone newTodo
+--   case (newTodoText, newTodoDone) of
+--     (Just newText, Just newDone) -> Todo newText (_id currentTodo) newDone
+--     (Just newText, Nothing) -> Todo newText (_id currentTodo) (_done currentTodo)
+--     (Nothing, Just newDone) -> Todo (_text currentTodo) (_id currentTodo) newDone
+--     (Nothing, Nothing) -> currentTodo
 
-todoToJsonText :: Todo -> Text
-todoToJsonText = fromString . unpack . decodeUtf8 . encode
+-- todoToJsonText :: Todo -> Text
+-- todoToJsonText = fromString . unpack . decodeUtf8 . encode
 
-sendError :: Text -> Status -> ActionT Text WebM ()
-sendError message responseStatus = do
-  -- TODO: perhaps set header globally?
-  setHeader "Content-Type" "application/json"
-  status responseStatus
-  text $ decodeUtf8 $ encode $ ApiError message
+-- sendError :: Text -> Status -> ActionT Text WebM ()
+-- sendError message responseStatus = do
+--   -- TODO: perhaps set header globally?
+--   setHeader "Content-Type" "application/json"
+--   status responseStatus
+--   text $ decodeUtf8 $ encode $ ApiError message
 
 -- TODO: why is this not working?
 -- allowCors :: Middleware
@@ -156,86 +202,3 @@ appCorsResourcePolicy =
     { corsMethods = ["OPTIONS", "GET", "PATCH", "POST", "DELETE"],
       corsRequestHeaders = ["Authorization", "Content-Type"]
     }
-
--- This app doesn't use raise/rescue, so the exception
--- type is ambiguous. We can fix it by putting a type
--- annotation just about anywhere. In this case, we'll
--- just do it on the entire app.
-app :: ScottyT Text WebM ()
-app = do
-  middleware logStdoutDev
-  middleware allowCors
-
-  get "/" $ do
-    text $ fromString "Welcome to your todo list! You might want to query /todos instead :]"
-
-  -- GET all todos
-  get "/todos" $ do
-    c <- webM $ gets todo
-    setHeader "Content-Type" "application/json"
-    status status200
-    text $ strip $ fromString $ unpack $ decodeUtf8 $ encode $ M.foldr (:) [] c
-
-  -- GET todo
-  get "/todos/:id" $ do
-    unparsedId <- param "id"
-    case decimal unparsedId of
-      Left err -> sendError (pack err) status400
-      Right (parsedId, _rest) -> do
-        todos <- webM $ gets todo
-        case M.lookup parsedId todos of
-          Nothing -> sendError "no todo found for given id" status404
-          Just existingTodo -> do
-            setHeader "Content-Type" "application/json"
-            status status200
-            text $ strip $ fromString $ unpack $ decodeUtf8 $ encode existingTodo
-
-  -- DELETE todo
-  delete "/todos/:id" $ do
-    unparsedId <- param "id"
-    case decimal unparsedId of
-      Left err -> sendError (pack err) status400
-      Right (parsedId, _rest) -> do
-        todos <- webM $ gets todo
-        case M.lookup parsedId todos of
-          Just toDeleteTodo -> do
-            webM $ modify $ \st -> st {todo = M.delete parsedId $ todo st}
-            status status200
-            setHeader "Content-Type" "application/json"
-            text $ strip $ fromString $ unpack $ decodeUtf8 $ encode toDeleteTodo
-          Nothing -> sendError "no todo found for given id" status404
-
-  -- CREATE todo
-  post "/todos" $ do
-    unparsedJson <- body
-    case decode unparsedJson :: Maybe CreateTodoInput of
-      Just createTodoInput -> do
-        todos <- webM $ gets todo
-        -- MAYBE: make them functions and use as "with"
-        let idOfNewTodo = 1 + fst (M.findMax todos)
-        let createdTodo = Todo (__text createTodoInput) idOfNewTodo False
-        webM $ modify $ \st -> st {todo = M.insert idOfNewTodo createdTodo $ todo st}
-        setHeader "Content-Type" "application/json"
-        text $ todoToJsonText createdTodo
-      Nothing -> do
-        status status400
-        text "invalid input"
-
-  -- UPDATE todo
-  patch "/todos/:id" $ do
-    unparsedIdFromPath <- param "id"
-    case decimal unparsedIdFromPath of
-      Left err -> sendError (pack err) status400
-      Right (idOfTodoToBeUpdated, _rest) -> do
-        unparsedJson <- body
-        case decode unparsedJson :: Maybe UpdateTodoInput of
-          Just updateTodoInput -> do
-            todos <- webM $ gets todo
-            case M.lookup idOfTodoToBeUpdated todos of
-              Just currentTodo -> do
-                let updatedTodo = updateTodo currentTodo updateTodoInput
-                webM $ modify $ \st -> st {todo = M.insert idOfTodoToBeUpdated updatedTodo $ todo st}
-                setHeader "Content-Type" "application/json"
-                text $ todoToJsonText updatedTodo
-              Nothing -> sendError "no todo found for given id" status404
-          Nothing -> sendError "invalid input" status400

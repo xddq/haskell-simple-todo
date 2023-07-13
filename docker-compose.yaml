@@ -1,0 +1,18 @@
+version: "3.9"
+
+services:
+  postgres:
+    # TODO: can we pin the image by hash?
+    image: postgres:15.3-bullseye
+    restart: always
+    environment:
+      - POSTGRES_DB=psql
+      - POSTGRES_USER=psql
+      - POSTGRES_PASSWORD=psql
+    volumes:
+      - todo-db:/var/lib/postgresql/data
+    ports:
+      - 5432:5432
+
+volumes:
+  todo-db:

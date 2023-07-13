@@ -12,10 +12,18 @@ out there.
 The code stores the todos in memory and does therefore reset all todos whenever
 restarted.
 
-## Quickstart
+# Prerequisites
 
 - Ensure you have ghc and cabal installed. We used
   [ghcup](https://www.haskell.org/ghcup/) to get these and used ghc 9.2.7.
+- dbmate installed for raw SQL migrations
+  - [install docs](https://github.com/amacneil/dbmate#installation)
+
+## Quickstart
+
+- Start database `docker-compose up -d`
+- Createa database `dbmate create`
+- Create tables for our todo-app `dbmate up`
 - Install dependencies and build the app `cabal build`
 - Run the app `cabal run todo-app`
 - Send requests against the API, an easy way is to just use the hosted openapi
@@ -29,6 +37,22 @@ make and save changes to the app.
 
 An API specification was created using openapi. It is hosted via github pages
 and can be found [here](https://xddq.github.io/haskell-simple-todo).
+
+## Managing the database
+
+- We use [dbmate](https://github.com/amacneil/dbmate) for migrations, check
+  their docu there if in doubt.
+- Run dbmate to create migrations. Use snake_case since this is the default for
+  postgres and dbmate. E.g. `dbmate new add_origin_created_at_to_recipes`
+- A file will created which looks like this
+
+```
+-- migrate:up
+
+
+-- migrate:down
+
+```
 
 ## Improvements
 
