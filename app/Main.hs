@@ -14,7 +14,7 @@ module Main (main) where
 
 import Control.Concurrent.STM
 import Control.Monad.Reader
-import Data.Aeson (FromJSON (parseJSON), ToJSON (toJSON), decode, encode, object, withObject, (.:), (.=))
+import Data.Aeson (FromJSON (parseJSON), ToJSON (toJSON), decode, encode, object, withObject, (.:), (.:?), (.=))
 import Data.Default.Class
 import qualified Data.Map.Strict as M
 import Data.String
@@ -23,8 +23,10 @@ import Data.Text.Lazy.Encoding (decodeUtf8)
 import Data.Text.Lazy.Read
 import GHC.Generics (Generic)
 import Network.HTTP.Types (Status, status200, status400, status404)
+import Network.Wai.Middleware.Cors
 import Network.Wai.Middleware.RequestLogger
 import Prelude.Compat
+import Web.Scotty.Internal.Types (Middleware)
 import Web.Scotty.Trans
 import Prelude ()
 
@@ -47,13 +49,13 @@ instance ToJSON Todo where
 
 -- Client facing errors. Whenever we get an error, we return additional
 -- information in this format.
-data Error = Error
+data ApiError = ApiError
   { _errorMessage :: Text
   }
   deriving (Show, Generic)
 
-instance ToJSON Error where
-  toJSON (Error {_errorMessage = _errorMessage}) =
+instance ToJSON ApiError where
+  toJSON (ApiError {_errorMessage = _errorMessage}) =
     object
       ["message" .= _errorMessage]
 
@@ -72,13 +74,13 @@ instance FromJSON CreateTodoInput where
 
 -- TODO: adapt so here we can have have either updateTodoText or updateTodoDone or both
 data UpdateTodoInput = UpdateTodoInput
-  {updateTodoText :: String, updateTodoDone :: Bool}
+  {updateTodoText :: Maybe String, updateTodoDone :: Maybe Bool}
   deriving (Show, Generic)
 
 instance FromJSON UpdateTodoInput where
   parseJSON = withObject "UpdateTodoInput" $ \obj -> do
-    newText <- obj .: "text"
-    newDone <- obj .: "done"
+    newText <- obj .:? "text"
+    newDone <- obj .:? "done"
     return (UpdateTodoInput {updateTodoText = newText, updateTodoDone = newDone})
 
 type Id = Int
@@ -122,6 +124,18 @@ main = do
 
   scottyT 3000 runActionToIO app
 
+-- TODO: How is this done "correctly"? With this approach, we would need a lot
+-- of different cases if we had e.g. 5 optional attributes..?
+updateTodo :: Todo -> UpdateTodoInput -> Todo
+updateTodo currentTodo newTodo = do
+  let newTodoText = updateTodoText newTodo
+  let newTodoDone = updateTodoDone newTodo
+  case (newTodoText, newTodoDone) of
+    (Just newText, Just newDone) -> Todo newText (_id currentTodo) newDone
+    (Just newText, Nothing) -> Todo newText (_id currentTodo) (_done currentTodo)
+    (Nothing, Just newDone) -> Todo (_text currentTodo) (_id currentTodo) newDone
+    (Nothing, Nothing) -> currentTodo
+
 todoToJsonText :: Todo -> Text
 todoToJsonText = fromString . unpack . decodeUtf8 . encode
 
@@ -130,7 +144,18 @@ sendError message responseStatus = do
   -- TODO: perhaps set header globally?
   setHeader "Content-Type" "application/json"
   status responseStatus
-  text $ decodeUtf8 $ encode $ Error message
+  text $ decodeUtf8 $ encode $ ApiError message
+
+-- TODO: why is this not working?
+-- allowCors :: Middleware
+allowCors = cors (const $ Just appCorsResourcePolicy)
+
+appCorsResourcePolicy :: CorsResourcePolicy
+appCorsResourcePolicy =
+  simpleCorsResourcePolicy
+    { corsMethods = ["OPTIONS", "GET", "PATCH", "POST", "DELETE"],
+      corsRequestHeaders = ["Authorization", "Content-Type"]
+    }
 
 -- This app doesn't use raise/rescue, so the exception
 -- type is ambiguous. We can fix it by putting a type
@@ -139,6 +164,8 @@ sendError message responseStatus = do
 app :: ScottyT Text WebM ()
 app = do
   middleware logStdoutDev
+  middleware allowCors
+
   get "/" $ do
     text $ fromString "Welcome to your todo list! You might want to query /todos instead :]"
 
@@ -205,8 +232,8 @@ app = do
           Just updateTodoInput -> do
             todos <- webM $ gets todo
             case M.lookup idOfTodoToBeUpdated todos of
-              Just _existingTodo -> do
-                let updatedTodo = Todo (updateTodoText updateTodoInput) idOfTodoToBeUpdated (updateTodoDone updateTodoInput)
+              Just currentTodo -> do
+                let updatedTodo = updateTodo currentTodo updateTodoInput
                 webM $ modify $ \st -> st {todo = M.insert idOfTodoToBeUpdated updatedTodo $ todo st}
                 setHeader "Content-Type" "application/json"
                 text $ todoToJsonText updatedTodo
