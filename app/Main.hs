@@ -1,6 +1,4 @@
-{-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 -- An example of embedding a custom monad into
@@ -88,7 +86,10 @@ instance FromRow Todo where
   fromRow = Todo <$> field <*> field <*> field
 
 getTodoById :: Connection -> Int -> IO [Todo]
-getTodoById conn idOfTodo = query conn "SELECT (id,text,done) FROM todos WHERE id = ?" (Only idOfTodo)
+getTodoById conn idOfTodo = query conn "SELECT * FROM todos WHERE id = ?" [idOfTodo]
+
+-- TODO: why does this not work??
+-- getTodoById conn idOfTodo = query conn "SELECT (id,text,done) FROM todos WHERE id = ?" [idOfTodo]
 
 main :: IO ()
 main = do
@@ -122,10 +123,10 @@ main = do
 instance FromJSON Todo
 
 instance ToJSON Todo where
-  toJSON (Todo todoToJsontext todoToJsonId todoToJsonDone) =
+  toJSON (Todo todoToJsonId todoToJsontext todoToJsonDone) =
     object
-      [ "text" .= todoToJsontext,
-        "id" .= todoToJsonId,
+      [ "id" .= todoToJsonId,
+        "text" .= todoToJsontext,
         "done" .= todoToJsonDone
       ]
 
