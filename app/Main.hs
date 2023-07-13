@@ -1,4 +1,6 @@
 {-# LANGUAGE DeriveGeneric #-}
+-- seems to be "desctructuring" from js/ts
+{-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 -- An example of embedding a custom monad into
@@ -23,6 +25,7 @@ import Data.Text.Lazy.Encoding (decodeUtf8)
 import Data.Text.Lazy.Read
 import Database.PostgreSQL.Simple
 import Database.PostgreSQL.Simple.FromRow
+import Database.PostgreSQL.Simple.ToRow
 import GHC.Generics (Generic)
 import Network.HTTP.Types (Status, status200, status400, status404)
 import Network.Wai.Middleware.Cors
@@ -43,20 +46,24 @@ instance ToJSON ApiError where
     object
       ["message" .= msg]
 
---
 -- for validating the todo we pass when creating a new todo
--- data CreateTodoInput = CreateTodoInput
---   { __text :: String,
---     __done :: Bool
---   }
---   deriving (Show, Generic)
---
--- instance FromJSON CreateTodoInput where
---   parseJSON = withObject "CreateTodoInput" $ \obj -> do
---     __text <- obj .: "text"
---     __done <- obj .: "done"
---     return (CreateTodoInput {__text = __text, __done = __done})
---
+data CreateTodoInput = CreateTodoInput
+  { createTodoInputText :: String,
+    createTodoInputDone :: Bool
+  }
+  deriving (Show, Generic)
+
+instance ToRow CreateTodoInput where
+  -- NOTE: the order here (in the toRow on the right) determines the required
+  -- order of args in the SQL insert statement.
+  toRow CreateTodoInput {createTodoInputDone, createTodoInputText} = toRow (createTodoInputDone, createTodoInputText)
+
+instance FromJSON CreateTodoInput where
+  parseJSON = withObject "CreateTodoInput" $ \obj -> do
+    createTodoInputFromJsonText <- obj .: "text"
+    createTodoInputFromJsonDone <- obj .: "done"
+    return (CreateTodoInput createTodoInputFromJsonText createTodoInputFromJsonDone)
+
 -- -- TODO: adapt so here we can have have either updateTodoText or updateTodoDone or both
 -- data UpdateTodoInput = UpdateTodoInput
 --   {updateTodoText :: Maybe String, updateTodoDone :: Maybe Bool}
@@ -91,6 +98,10 @@ getTodoById conn idOfTodo = query conn "SELECT * FROM todos WHERE id = ?" [idOfT
 -- TODO: why does this not work??
 -- getTodoById conn idOfTodo = query conn "SELECT (id,text,done) FROM todos WHERE id = ?" [idOfTodo]
 
+-- TODO: add RETURNING and return the created todo.
+createTodo :: Connection -> CreateTodoInput -> IO Int64
+createTodo conn = execute conn "INSERT INTO todos (done,text) VALUES (?,?)"
+
 main :: IO ()
 main = do
   conn <- connect defaultConnectInfo {connectHost = "localhost", connectDatabase = "todo-app", connectUser = "psql", connectPassword = "psql"}
@@ -119,6 +130,18 @@ main = do
           setHeader "Content-Type" "application/json"
           status status200
           text $ decodeUtf8 $ encode todo
+
+    -- CREATE todo
+    post "/todos" $ do
+      unparsedJson <- body
+      case decode unparsedJson :: Maybe CreateTodoInput of
+        Just createTodoInput -> do
+          affectedRows <- liftIO (createTodo conn createTodoInput)
+          setHeader "Content-Type" "application/json"
+          text $ pack $ show affectedRows
+        Nothing -> do
+          status status400
+          text "invalid input"
 
 instance FromJSON Todo
 
