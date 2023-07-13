@@ -1,3 +1,4 @@
+{-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -16,12 +17,14 @@ import Control.Concurrent.STM
 import Control.Monad.Reader
 import Data.Aeson (FromJSON (parseJSON), ToJSON (toJSON), decode, encode, object, withObject, (.:), (.:?), (.=))
 import Data.Default.Class
+import Data.Int
 import qualified Data.Map.Strict as M
 import Data.String
 import Data.Text.Lazy (Text, pack, strip, unpack)
 import Data.Text.Lazy.Encoding (decodeUtf8)
 import Data.Text.Lazy.Read
 import Database.PostgreSQL.Simple
+import Database.PostgreSQL.Simple.FromRow
 import GHC.Generics (Generic)
 import Network.HTTP.Types (Status, status200, status400, status404)
 import Network.Wai.Middleware.Cors
@@ -30,58 +33,62 @@ import Prelude.Compat
 import Web.Scotty
 import Prelude ()
 
-data Todo = Todo
-  { _text :: String,
-    _id :: Int,
-    _done :: Bool
-  }
-  deriving (Show, Generic)
-
-instance FromJSON Todo
-
-instance ToJSON Todo where
-  toJSON (Todo {_text = _text, _id = _id, _done = _done}) =
-    object
-      [ "text" .= _text,
-        "id" .= _id,
-        "done" .= _done
-      ]
-
 -- Client facing errors. Whenever we get an error, we return additional
 -- information in this format.
 data ApiError = ApiError
-  { _errorMessage :: Text
+  { apiErrrorMessage :: Text
   }
   deriving (Show, Generic)
 
 instance ToJSON ApiError where
-  toJSON (ApiError {_errorMessage = _errorMessage}) =
+  toJSON (ApiError msg) =
     object
-      ["message" .= _errorMessage]
+      ["message" .= msg]
 
+--
 -- for validating the todo we pass when creating a new todo
-data CreateTodoInput = CreateTodoInput
-  { __text :: String,
-    __done :: Bool
+-- data CreateTodoInput = CreateTodoInput
+--   { __text :: String,
+--     __done :: Bool
+--   }
+--   deriving (Show, Generic)
+--
+-- instance FromJSON CreateTodoInput where
+--   parseJSON = withObject "CreateTodoInput" $ \obj -> do
+--     __text <- obj .: "text"
+--     __done <- obj .: "done"
+--     return (CreateTodoInput {__text = __text, __done = __done})
+--
+-- -- TODO: adapt so here we can have have either updateTodoText or updateTodoDone or both
+-- data UpdateTodoInput = UpdateTodoInput
+--   {updateTodoText :: Maybe String, updateTodoDone :: Maybe Bool}
+--   deriving (Show, Generic)
+--
+-- instance FromJSON UpdateTodoInput where
+--   parseJSON = withObject "UpdateTodoInput" $ \obj -> do
+--     newText <- obj .:? "text"
+--     newDone <- obj .:? "done"
+--     return (UpdateTodoInput {updateTodoText = newText, updateTodoDone = newDone})
+
+sendError :: Text -> Status -> ActionM ()
+sendError message responseStatus = do
+  -- TODO: perhaps set header globally?
+  setHeader "Content-Type" "application/json"
+  status responseStatus
+  text $ decodeUtf8 $ encode $ ApiError message
+
+data Todo = Todo
+  { todoId :: Int,
+    todoText :: Text,
+    todoDone :: Bool
   }
   deriving (Show, Generic)
 
-instance FromJSON CreateTodoInput where
-  parseJSON = withObject "CreateTodoInput" $ \obj -> do
-    __text <- obj .: "text"
-    __done <- obj .: "done"
-    return (CreateTodoInput {__text = __text, __done = __done})
+instance FromRow Todo where
+  fromRow = Todo <$> field <*> field <*> field
 
--- TODO: adapt so here we can have have either updateTodoText or updateTodoDone or both
-data UpdateTodoInput = UpdateTodoInput
-  {updateTodoText :: Maybe String, updateTodoDone :: Maybe Bool}
-  deriving (Show, Generic)
-
-instance FromJSON UpdateTodoInput where
-  parseJSON = withObject "UpdateTodoInput" $ \obj -> do
-    newText <- obj .:? "text"
-    newDone <- obj .:? "done"
-    return (UpdateTodoInput {updateTodoText = newText, updateTodoDone = newDone})
+getTodoById :: Connection -> Int -> IO [Todo]
+getTodoById conn idOfTodo = query conn "SELECT (id,text,done) FROM todos WHERE id = ?" (Only idOfTodo)
 
 main :: IO ()
 main = do
@@ -98,6 +105,29 @@ main = do
     get "/4" $ do
       [Only result] <- liftIO (query_ conn "select 2 + 2" :: IO [Only Int])
       text $ pack $ show result
+
+    get "/todos/:id" $ do
+      unparsedId <- param "id"
+      case decimal unparsedId of
+        Left err -> sendError (pack err) status400
+        Right (parsedId, _rest) -> do
+          -- TODO: why do we get error "Incompatible {errSQLType = "record",
+          -- errSQLTableOid = Nothing, errSQLField = "row", errHaskellType =
+          -- "Int", errMessage = "types incompatible"}" here?
+          todo <- liftIO (getTodoById conn parsedId)
+          setHeader "Content-Type" "application/json"
+          status status200
+          text $ decodeUtf8 $ encode todo
+
+instance FromJSON Todo
+
+instance ToJSON Todo where
+  toJSON (Todo todoToJsontext todoToJsonId todoToJsonDone) =
+    object
+      [ "text" .= todoToJsontext,
+        "id" .= todoToJsonId,
+        "done" .= todoToJsonDone
+      ]
 
 -- -- GET all todos
 -- get "/todos" $ do
