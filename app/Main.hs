@@ -183,7 +183,7 @@ main = do
                   updatedTodo <- liftIO (updateTodoById conn updateTodoInput)
                   case listToMaybe updatedTodo of
                     Just todo -> sendSuccess $ decodeUtf8 $ encode todo
-                    Nothing -> sendError "should never happen. updating a todo returned an empty list" status500
+                    Nothing -> sendError "not found" status404
             Nothing -> sendError "invalid input" status400
 
 -- TODO: why is this signature not working?
