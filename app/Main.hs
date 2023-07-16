@@ -18,9 +18,12 @@ import Database.PostgreSQL.Simple.FromRow
 import Database.PostgreSQL.Simple.ToRow
 import GHC.Generics (Generic)
 import Network.HTTP.Types (Status, status200, status400, status404, status500)
+import Network.Wai (Application)
 import Network.Wai.Middleware.Cors
 import Network.Wai.Middleware.RequestLogger
 import Prelude.Compat
+import Test.Hspec
+import qualified Test.Hspec.Wai as H
 import Web.Scotty
 import Prelude ()
 
@@ -134,8 +137,12 @@ appCorsResourcePolicy =
 main :: IO ()
 main = do
   conn <- connect defaultConnectInfo {connectHost = "localhost", connectDatabase = "todo-app", connectUser = "psql", connectPassword = "psql"}
+  hspec $ spec $ app conn
 
-  scotty 3000 $ do
+-- app
+app :: Connection -> IO Application
+app conn =
+  scottyApp $ do
     -- Add any WAI middleware, they are run top-down.
     middleware logStdoutDev
     middleware allowCors
@@ -196,3 +203,23 @@ main = do
                     Just todo -> sendSuccess $ decodeUtf8 $ encode todo
                     Nothing -> sendError "not found" status404
             Nothing -> sendError "invalid input" status400
+
+-- testing
+spec :: IO Application -> Spec
+spec application = H.with application $ do
+  describe "GET /" $ do
+    it "responds with 200" $ do
+      H.get "/" `H.shouldRespondWith` 200
+
+    it "responds with 'hello'" $ do
+      H.get "/" `H.shouldRespondWith` "hello"
+
+    it "responds with 200 / 'hello'" $ do
+      H.get "/" `H.shouldRespondWith` "hello" {H.matchStatus = 200}
+
+    it "has 'Content-Type: text/plain; charset=utf-8'" $ do
+      H.get "/" `H.shouldRespondWith` 200 {H.matchHeaders = ["Content-Type" H.<:> "text/plain; charset=utf-8"]}
+
+-- describe "GET /some-json" $ do
+--   it "responds with some JSON" $ do
+--     H.get "/some-json" `shouldRespondWith` [json|{foo: 23, bar: 42}|]
