@@ -6,7 +6,7 @@
 module Main (main) where
 
 import Control.Monad.Reader
-import Data.Aeson (FromJSON (parseJSON), ToJSON (toJSON), decode, encode, object, withObject, (.:), (.:?), (.=))
+import Data.Aeson (FromJSON (parseJSON), ToJSON (toJSON), decode, encode, object, withObject, (.:), (.=))
 import Data.Int
 import Data.Maybe (listToMaybe)
 import Data.String
@@ -120,6 +120,17 @@ updateTodoById conn = query conn "UPDATE todos SET text=?,done=? WHERE id=? RETU
 deleteTodo :: Connection -> Int -> IO Int64
 deleteTodo conn todoId = execute conn "DELETE FROM todos WHERE id = ?" (Only todoId)
 
+-- TODO: why is this signature not working?
+-- allowCors :: Middleware
+allowCors = cors (const $ Just appCorsResourcePolicy)
+
+appCorsResourcePolicy :: CorsResourcePolicy
+appCorsResourcePolicy =
+  simpleCorsResourcePolicy
+    { corsMethods = ["OPTIONS", "GET", "PATCH", "POST", "DELETE"],
+      corsRequestHeaders = ["Authorization", "Content-Type"]
+    }
+
 main :: IO ()
 main = do
   conn <- connect defaultConnectInfo {connectHost = "localhost", connectDatabase = "todo-app", connectUser = "psql", connectPassword = "psql"}
@@ -185,14 +196,3 @@ main = do
                     Just todo -> sendSuccess $ decodeUtf8 $ encode todo
                     Nothing -> sendError "not found" status404
             Nothing -> sendError "invalid input" status400
-
--- TODO: why is this signature not working?
--- allowCors :: Middleware
-allowCors = cors (const $ Just appCorsResourcePolicy)
-
-appCorsResourcePolicy :: CorsResourcePolicy
-appCorsResourcePolicy =
-  simpleCorsResourcePolicy
-    { corsMethods = ["OPTIONS", "GET", "PATCH", "POST", "DELETE"],
-      corsRequestHeaders = ["Authorization", "Content-Type"]
-    }
