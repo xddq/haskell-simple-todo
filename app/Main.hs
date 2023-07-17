@@ -2,11 +2,14 @@
 -- seems to be "desctructuring" from js/ts
 {-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE QuasiQuotes #-}
 
 module Main (main) where
 
 import Control.Monad.Reader
-import Data.Aeson (FromJSON (parseJSON), ToJSON (toJSON), decode, encode, object, withObject, (.:), (.=))
+import Data.Aeson (FromJSON (parseJSON), ToJSON (toJSON), Value, decode, encode, object, withObject, (.:), (.=))
+import qualified Data.Aeson.QQ as JSONQQ
+import qualified Data.ByteString.Lazy.Char8 as LBS
 import Data.Int
 import Data.Maybe (listToMaybe)
 import Data.String
@@ -17,7 +20,8 @@ import Database.PostgreSQL.Simple
 import Database.PostgreSQL.Simple.FromRow
 import Database.PostgreSQL.Simple.ToRow
 import GHC.Generics (Generic)
-import Network.HTTP.Types (Status, status200, status400, status404, status500)
+import Network.HTTP.Types (Header, Status, status200, status400, status404, status500)
+import qualified Network.HTTP.Types as Network.HTTP.Types.Header
 import Network.Wai (Application)
 import Network.Wai.Middleware.Cors
 import Network.Wai.Middleware.RequestLogger
@@ -134,8 +138,15 @@ appCorsResourcePolicy =
       corsRequestHeaders = ["Authorization", "Content-Type"]
     }
 
+seededTodos :: Value
+seededTodos = [JSONQQ.aesonQQ| [{id: 1, text: "do stuff", done: false}, {id: 2, text: "review pr", done: true}, {id: 3, text: "code in haskell", done: true},{id: 4, text: "check out nix-shell", done: false},{id:5, text:"try property based testing", done: false}] |]
+
+seededTodo :: Value
+seededTodo = [JSONQQ.aesonQQ| {id: 1, text: "do stuff", done: false} |]
+
 main :: IO ()
 main = do
+  putStrLn $ LBS.unpack $ encode seededTodos
   conn <- connect defaultConnectInfo {connectHost = "localhost", connectDatabase = "todo-app", connectUser = "psql", connectPassword = "psql"}
   hspec $ spec $ app conn
 
@@ -148,6 +159,8 @@ app conn =
     middleware allowCors
 
     get "/" $ do
+      setHeader "Content-Type" "text/plain; charset=utf-8"
+      status status200
       text $ fromString "Welcome to your todo list! You might want to query /todos instead :]"
 
     -- GET all todos
@@ -207,19 +220,43 @@ app conn =
 -- testing
 spec :: IO Application -> Spec
 spec application = H.with application $ do
+  -- test the "dummy" route
   describe "GET /" $ do
     it "responds with 200" $ do
       H.get "/" `H.shouldRespondWith` 200
 
-    it "responds with 'hello'" $ do
-      H.get "/" `H.shouldRespondWith` "hello"
-
-    it "responds with 200 / 'hello'" $ do
-      H.get "/" `H.shouldRespondWith` "hello" {H.matchStatus = 200}
+    it "responds with 'Welcome to your todo list! You might want to query /todos instead :]'" $ do
+      H.get "/" `H.shouldRespondWith` "Welcome to your todo list! You might want to query /todos instead :]"
 
     it "has 'Content-Type: text/plain; charset=utf-8'" $ do
       H.get "/" `H.shouldRespondWith` 200 {H.matchHeaders = ["Content-Type" H.<:> "text/plain; charset=utf-8"]}
 
--- describe "GET /some-json" $ do
---   it "responds with some JSON" $ do
---     H.get "/some-json" `shouldRespondWith` [json|{foo: 23, bar: 42}|]
+  describe "GET /todos" $ do
+    it "responds with some JSON" $ do
+      H.get "/todos" `H.shouldRespondWith` 200 {H.matchBody = H.MatchBody (bodyEquals $ encode seededTodos)}
+
+  describe "GET /todos/1" $ do
+    it "responds with some JSON" $ do
+      H.get "/todos/1" `H.shouldRespondWith` 200 {H.matchBody = H.MatchBody (bodyEquals $ encode seededTodo)}
+
+  -- TODO: delete a todo
+  describe "GET /todos/1" $ do
+    it "responds with some JSON" $ do
+      H.get "/todos/1" `H.shouldRespondWith` 200 {H.matchBody = H.MatchBody (bodyEquals $ encode seededTodo)}
+
+  -- TODO: create a todo
+  describe "GET /todos/1" $ do
+    it "responds with some JSON" $ do
+      H.get "/todos/1" `H.shouldRespondWith` 200 {H.matchBody = H.MatchBody (bodyEquals $ encode seededTodo)}
+
+  -- TODO: update a todo
+  describe "GET /todos/1" $ do
+    it "responds with some JSON" $ do
+      H.get "/todos/1" `H.shouldRespondWith` 200 {H.matchBody = H.MatchBody (bodyEquals $ encode seededTodo)}
+
+-- Used to create a H.ResponseMatcher
+-- Here "Nothing" is actually the correct case and "Just" is the error case.
+bodyEquals :: LBS.ByteString -> [Network.HTTP.Types.Header.Header] -> LBS.ByteString -> Maybe String
+bodyEquals expected _ actual
+  | expected == actual = Nothing
+  | otherwise = Just $ "Expected: " ++ show expected ++ "\n but got: " ++ show actual
