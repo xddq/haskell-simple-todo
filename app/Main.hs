@@ -1,13 +1,16 @@
+-- for deriving ToRow
+{-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
 -- seems to be "desctructuring" from js/ts
 {-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE OverloadedStrings #-}
+-- to construct json easily with quasiquotes
 {-# LANGUAGE QuasiQuotes #-}
 
 module Main (main) where
 
 import Control.Monad.Reader
-import Data.Aeson (FromJSON (parseJSON), ToJSON (toJSON), Value, decode, encode, object, withObject, (.:), (.=))
+import Data.Aeson (FromJSON (parseJSON), Result (Error, Success), ToJSON (toJSON), Value, decode, encode, fromJSON, object, withObject, (.:), (.=))
 import qualified Data.Aeson.QQ as JSONQQ
 import qualified Data.ByteString.Lazy.Char8 as LBS
 import Data.Int
@@ -20,7 +23,7 @@ import Database.PostgreSQL.Simple
 import Database.PostgreSQL.Simple.FromRow
 import Database.PostgreSQL.Simple.ToRow
 import GHC.Generics (Generic)
-import Network.HTTP.Types (Header, Status, status200, status400, status404, status500)
+import Network.HTTP.Types (Status, status200, status400, status404, status500)
 import qualified Network.HTTP.Types as Network.HTTP.Types.Header
 import Network.Wai (Application)
 import Network.Wai.Middleware.Cors
@@ -41,10 +44,10 @@ instance ToJSON ApiError where
 
 -- for validating the todo we pass when creating a new todo
 data CreateTodoInput = CreateTodoInput
-  { createTodoInputText :: String,
+  { createTodoInputText :: Text,
     createTodoInputDone :: Bool
   }
-  deriving (Show, Generic)
+  deriving (Show, Generic, Eq)
 
 instance ToRow CreateTodoInput where
   -- NOTE: the order here (in the toRow on the right) determines the required
@@ -60,10 +63,10 @@ instance FromJSON CreateTodoInput where
 -- for validating the todo we pass when updating a todo
 data UpdateTodoInput = UpdateTodoInput
   { updateTodoInputId :: Int,
-    updateTodoInputText :: String,
+    updateTodoInputText :: Text,
     updateTodoInputDone :: Bool
   }
-  deriving (Show, Generic)
+  deriving (Show, Generic, Eq)
 
 instance ToRow UpdateTodoInput where
   -- NOTE: the order here (in the toRow on the right) determines the required
@@ -94,7 +97,7 @@ data Todo = Todo
     todoText :: Text,
     todoDone :: Bool
   }
-  deriving (Show, Generic)
+  deriving (Show, Generic, ToRow, Eq)
 
 instance FromRow Todo where
   fromRow = Todo <$> field <*> field <*> field
@@ -138,17 +141,46 @@ appCorsResourcePolicy =
       corsRequestHeaders = ["Authorization", "Content-Type"]
     }
 
+-- Used for testing the application. Will add dummy data to the database.
 seededTodos :: Value
-seededTodos = [JSONQQ.aesonQQ| [{id: 1, text: "do stuff", done: false}, {id: 2, text: "review pr", done: true}, {id: 3, text: "code in haskell", done: true},{id: 4, text: "check out nix-shell", done: false},{id:5, text:"try property based testing", done: false}] |]
+seededTodos = [JSONQQ.aesonQQ| [{done: false, text: "do stuff"}, {done: true, text: "review pr"}, {done: true, text: "code in haskell"}] |]
 
-seededTodo :: Value
-seededTodo = [JSONQQ.aesonQQ| {id: 1, text: "do stuff", done: false} |]
+-- Used for testing the application. Will remove all data from the todos table
+-- in the database.
+flushDb :: Connection -> IO Int64
+flushDb conn = execute_ conn "DELETE FROM todos"
+
+-- Used for testing the application. Deletes all data from the database and then
+-- seeds it with dummy data. Will be run before each test to ensure we have the
+-- same state in the db for each case.
+prepareDbForTestCase :: Connection -> IO ()
+prepareDbForTestCase conn = do
+  _flushedRowCount <- flushDb conn
+  case fromJSON seededTodos :: Result [CreateTodoInput] of
+    Success parsedTodos -> mapM_ (createTodo conn) parsedTodos
+    Error err -> error err
+
+-- Used for testing the application.
+isTodoEqualToCreateTodoInput :: Todo -> CreateTodoInput -> Bool
+isTodoEqualToCreateTodoInput (Todo _ todoText todoDone) (CreateTodoInput createTodoText createTodoDone) = todoText == createTodoText && todoDone == createTodoDone
+
+-- Used for testing the application.
+compareSeededTodosWithDbTodos :: LBS.ByteString -> LBS.ByteString -> Maybe String
+compareSeededTodosWithDbTodos fromSeedTodos fromDbTodos = do
+  case decode fromSeedTodos :: Maybe [CreateTodoInput] of
+    Nothing -> Just "could not decode seeded todos."
+    Just decodedSeededTodos -> do
+      case decode fromDbTodos :: Maybe [Todo] of
+        Nothing -> Just $ show fromDbTodos -- TODO: why can't we decode the db todos here... ?
+        Just decodedDbTodos -> do
+          let areEqual = zipWith isTodoEqualToCreateTodoInput decodedDbTodos decodedSeededTodos
+          if and areEqual then Nothing else Just "some todos were not equal"
 
 main :: IO ()
 main = do
   putStrLn $ LBS.unpack $ encode seededTodos
   conn <- connect defaultConnectInfo {connectHost = "localhost", connectDatabase = "todo-app", connectUser = "psql", connectPassword = "psql"}
-  hspec $ spec $ app conn
+  hspec $ before_ (prepareDbForTestCase conn) $ spec $ app conn
 
 -- app
 app :: Connection -> IO Application
@@ -232,27 +264,30 @@ spec application = H.with application $ do
       H.get "/" `H.shouldRespondWith` 200 {H.matchHeaders = ["Content-Type" H.<:> "text/plain; charset=utf-8"]}
 
   describe "GET /todos" $ do
-    it "responds with some JSON" $ do
-      H.get "/todos" `H.shouldRespondWith` 200 {H.matchBody = H.MatchBody (bodyEquals $ encode seededTodos)}
+    it "returns all todos" $ do
+      H.get "/todos" `H.shouldRespondWith` 200 {H.matchBody = H.MatchBody (todosEqualExpectedTodos $ encode seededTodos)}
 
-  describe "GET /todos/1" $ do
-    it "responds with some JSON" $ do
-      H.get "/todos/1" `H.shouldRespondWith` 200 {H.matchBody = H.MatchBody (bodyEquals $ encode seededTodo)}
+todosEqualExpectedTodos :: LBS.ByteString -> [Network.HTTP.Types.Header.Header] -> LBS.ByteString -> Maybe String
+todosEqualExpectedTodos expected _ = compareSeededTodosWithDbTodos expected
 
-  -- TODO: delete a todo
-  describe "GET /todos/1" $ do
-    it "responds with some JSON" $ do
-      H.get "/todos/1" `H.shouldRespondWith` 200 {H.matchBody = H.MatchBody (bodyEquals $ encode seededTodo)}
+-- describe "GET /todos/id" $ do
+--   it "responds with some JSON" $ do
+--     H.get "/todos/1" `H.shouldRespondWith` 200 {H.matchBody = H.MatchBody (bodyEquals $ encode seededTodos)}
 
-  -- TODO: create a todo
-  describe "GET /todos/1" $ do
-    it "responds with some JSON" $ do
-      H.get "/todos/1" `H.shouldRespondWith` 200 {H.matchBody = H.MatchBody (bodyEquals $ encode seededTodo)}
+-- TODO: create a todo
+-- describe "GET /todos/:id" $ do
+--   it "responds with some JSON" $ do
+--     H.get "/todos/1" `H.shouldRespondWith` 200 {H.matchBody = H.MatchBody (bodyEquals $ encode seededTodo)}
 
-  -- TODO: update a todo
-  describe "GET /todos/1" $ do
-    it "responds with some JSON" $ do
-      H.get "/todos/1" `H.shouldRespondWith` 200 {H.matchBody = H.MatchBody (bodyEquals $ encode seededTodo)}
+-- TODO: delete a todo
+-- describe "GET /todos/:id" $ do
+--   it "responds with some JSON" $ do
+--     H.get "/todos/1" `H.shouldRespondWith` 200 {H.matchBody = H.MatchBody (bodyEquals $ encode seededTodo)}
+
+-- TODO: update a todo
+-- describe "PATCH /todos/:id" $ do
+--   it "responds with some JSON" $ do
+--     H.get "/todos/1" `H.shouldRespondWith` 200 {H.matchBody = H.MatchBody (bodyEquals $ encode seededTodo)}
 
 -- Used to create a H.ResponseMatcher
 -- Here "Nothing" is actually the correct case and "Just" is the error case.
