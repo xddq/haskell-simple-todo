@@ -14,6 +14,7 @@ executable todo-app
   build-depends:       base >= 4.16 && < 4.17,
                        base-compat >= 0.12 && < 0.13,
                        scotty >= 0.12 && < 0.13,
+                       postgresql-simple == 0.6.5.1,
                        data-default-class,
                        aeson,
                        containers,
