@@ -29,6 +29,7 @@ cabal version 3.6.2.0.
 - For development it might be useful to run `bash watch-and-rebuild.sh` if you
   have inotify-watch installed it will then automatically rebuild whenever you
 make and save changes to the app.
+- You can run `dbmate down` followed by `dbmate up` to 're-seed' the database.
 
 ## OpenAPI specification
 
