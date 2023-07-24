@@ -32,7 +32,7 @@ make and save changes to the app.
 
 ## OpenAPI specification
 
-<img src="https://github.com/xddq/haskell-simple-todo/blob/main/openapi-sample.png" width="400">
+<img src="https://github.com/xddq/haskell-simple-todo/blob/main/openapi-sample.png">
 
 The Openapi specification is hosted via github pages and is available
 [here](https://xddq.github.io/haskell-simple-todo).
