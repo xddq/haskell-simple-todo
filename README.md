@@ -20,7 +20,7 @@ cabal version 3.6.2.0.
 - Set up environment variables `cp env.local .env`
 - Start postgresql/database `docker-compose up -d`
 - Create the database `dbmate create`
-- Create the table for our todo-app and fill it with 5 sample todos `dbmate up`
+- Create the table for our todo-app and fill it with 3 sample todos `dbmate up`
 - Install dependencies and build the app `cabal build`
 - Run the app `cabal run todo-app`
 - Send requests to the API, an easy way is to just use the hosted OpenAPI
