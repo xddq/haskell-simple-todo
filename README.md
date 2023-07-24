@@ -72,6 +72,7 @@ could be used, but that was just a quick search.
 - Format code with formatter (which one is commonly used in haskell..?) Ormoulu
   seems to be somewhat known/used, but it was just a quick search again.
   - Perhaps add format check as github action
+- Add additional tests (probably integration testst with db setup)
 
 Initially created by @vimpostor and @xddq in between the talks at ZuriHac 23 to
 at least get our feet wet with some Haskell :p.
