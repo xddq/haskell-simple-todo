@@ -35,11 +35,11 @@ instance FromJSON CreateTodoInput where
 
 -- How incoming JSON will be parsed to our internal UpdateTodoInput type
 instance FromJSON UpdateTodoInput where
-  parseJSON = withObject "CreateTodoInput" $ \obj -> do
+  parseJSON = withObject "UpdateTodoInput" $ \obj -> do
     updateTodoInputFromJsonId <- obj .: "id"
     updateTodoInputFromJsonText <- obj .: "text"
     updateTodoInputFromJsonDone <- obj .: "done"
-    return (UpdateTodoInput updateTodoInputFromJsonText updateTodoInputFromJsonDone updateTodoInputFromJsonId)
+    return (UpdateTodoInput updateTodoInputFromJsonId updateTodoInputFromJsonText updateTodoInputFromJsonDone)
 
 -- How internal Todo will be parsed to outgoing JSON
 instance ToJSON Todo where
@@ -137,3 +137,4 @@ mkApp conn =
                   case listToMaybe updatedTodo of
                     Just todo -> sendSuccess $ decodeUtf8 $ encode todo
                     Nothing -> sendError "not found" status404
+            Nothing -> sendError "invalid input" status400
