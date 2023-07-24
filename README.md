@@ -7,7 +7,8 @@ the database. Written by beginners so it might be helpful to other beginners ðŸ¤
 # Prerequisites
 
 - Ensure you have ghc and cabal installed. We used
-  [ghcup](https://www.haskell.org/ghcup/) to get these and used ghc 9.2.7.
+  [ghcup](https://www.haskell.org/ghcup/) to get these and used ghc 9.2.7 and
+cabal version 3.6.2.0.
 - dbmate installed for raw SQL migrations
   - [install docs](https://github.com/amacneil/dbmate#installation)
 - docker and docker-compose installed
@@ -31,6 +32,8 @@ make and save changes to the app.
 
 ## OpenAPI specification
 
+<img src="https://github.com/xddq/haskell-simple-todo/blob/main/openapi-sample.png" width="400">
+
 The Openapi specification is hosted via github pages and is available
 [here](https://xddq.github.io/haskell-simple-todo).
 
@@ -52,21 +55,21 @@ The Openapi specification is hosted via github pages and is available
 
 ## Improvements
 
-Happy about suggestions and improvements to the small code base. We literally
-just tried to make the compiler (and/or rather the LSP) not shout at us :D.
+Happy about suggestions and improvements to the small code base.
 
 ## Further ToDos
 
 These are just some possibly next steps one could do in order to improve the
 app. They are not strictly planned since we both have other priorities.
 - Create frontend for the app ..? Perhaps adapt to use an html templating
-  library to implement it as server rendered web app?
-- Add users and implement a basic/simple authZ and authN.
-  - Later perhaps implement "log in with google" or similar using OAuth2 or
-    OIDC.
+  library to implement it as server rendered web app? blaze-html seems like it
+could be used, but that was just a quick search.
+- Add users and implement basic/simple authZ and authN.
+  - Perhaps implement via "log in with google" or similar using OAuth2/OIDC.
 - Check out nix (or nix-shell?) to provide the dev setup. Did not read to much
   about it yet, might be a nonsense task.
-- Add formatter (which one is commonly used in haskell..?
+- Format code with formatter (which one is commonly used in haskell..?) Ormoulu
+  seems to be somewhat known/used, but it was just a quick search again.
   - Perhaps add format check as github action
 
 Initially created by @vimpostor and @xddq in between the talks at ZuriHac 23 to

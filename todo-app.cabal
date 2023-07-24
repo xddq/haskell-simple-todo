@@ -5,6 +5,50 @@ Homepage:            https://github.com/xddq/haskell-simple-todo
 Bug-reports:         https://github.com/xddq/haskell-simple-todo
 Category:            Web
 
+library webapp
+  exposed-modules:     Webapp
+  hs-source-dirs:      src/webapp
+  default-language:    Haskell2010
+  build-depends:       base >= 4.16 && < 4.17,
+                       base-compat >= 0.12 && < 0.13,
+                       postgresql-simple == 0.6.5.1,
+                       scotty == 0.12.1,
+                       wai == 3.2.3,
+                       wai-cors == 0.2.7,
+                       wai-extra == 3.1.13.0,
+                       warp == 3.3.28,
+                       http-types == 0.12.3,
+                       text == 1.2.5.0,
+                       aeson == 2.1.2.1,
+                       aeson-qq == 0.8.4,
+                       bytestring == 0.11.4.0,
+                       mtl == 2.2.2,
+                       -- our database
+                       database,
+
+library database
+  exposed-modules:     Database
+  hs-source-dirs:      src/database
+  default-language:    Haskell2010
+  build-depends:       base >= 4.16 && < 4.17,
+                       base-compat >= 0.12 && < 0.13,
+                       postgresql-simple == 0.6.5.1,
+                       text == 1.2.5.0,
+
+test-suite apptest
+  type:                exitcode-stdio-1.0
+  main-is:             test/Spec.hs
+  default-language:    Haskell2010
+  build-depends:       base >= 4.16 && < 4.17,
+                       base-compat >= 0.12 && < 0.13,
+                       postgresql-simple == 0.6.5.1,
+                       wai == 3.2.3,
+                       -- for testing the app
+                       hspec == 2.11.3,
+                       hspec-wai == 0.11.1,
+                       -- our webapp
+                       webapp,
+
 executable todo-app
   main-is:             Main.hs
   default-language:    Haskell2010
@@ -13,19 +57,8 @@ executable todo-app
   -- src: https://stackoverflow.com/questions/68558825/could-not-resolve-dependencies-while-installing-libraries-with-cabal
   build-depends:       base >= 4.16 && < 4.17,
                        base-compat >= 0.12 && < 0.13,
-                       scotty >= 0.12 && < 0.13,
                        postgresql-simple == 0.6.5.1,
-                       data-default-class,
-                       aeson,
-                       containers,
-                       mtl,
-                       scotty,
-                       stm,
-                       text,
-                       transformers,
-                       wai-cors,
-                       wai-extra,
-                       blaze-builder,
-                       bytestring,
-                       http-types
+                       warp == 3.3.28,
+                       -- our webapp
+                       webapp,
   GHC-options:         -Wall -threaded
