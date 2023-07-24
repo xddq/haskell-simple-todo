@@ -108,7 +108,9 @@ mkApp conn =
         Left err -> sendError (pack err) status400
         Right (parsedId, _rest) -> do
           deletedRowsCount <- liftIO (deleteTodo conn parsedId)
-          if deletedRowsCount == 1 then sendSuccess "ok" else sendError "not found" status404
+          if deletedRowsCount == 1
+            then sendSuccess $ decodeUtf8 $ encode $ object ["message" .= ("ok" :: Text)]
+            else sendError "not found" status404
 
     -- CREATE one todo
     post "/todos" $ do
