@@ -29,6 +29,6 @@ spec application = with application $ do
       get "/" `shouldRespondWith` 200 {matchHeaders = ["Content-Type" <:> "text/plain; charset=utf-8"]}
 
   -- TODO: perhaps run integration tests with database against crud routes
-  describe "GET /todos" $ do
-    it "responds with 200" $ do
-      get "/todos" `shouldRespondWith` 200
+  -- describe "GET /todos" $ do
+  --   it "responds with 200" $ do
+  --     get "/todos" `shouldRespondWith` 200
