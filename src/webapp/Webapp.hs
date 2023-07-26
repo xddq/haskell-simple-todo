@@ -16,15 +16,18 @@ import Network.HTTP.Types (Status, status200, status400, status404, status500)
 import Network.Wai (Application)
 import Network.Wai.Middleware.Cors (CorsResourcePolicy (corsMethods, corsRequestHeaders), cors, simpleCorsResourcePolicy)
 import Network.Wai.Middleware.RequestLogger (logStdoutDev)
-import Web.Scotty (ActionM, body, delete, get, middleware, param, patch, post, scottyApp, setHeader, status, text)
+import Web.Scotty (ActionM, body, delete, get, json, middleware, param, patch, post, scottyApp, setHeader, status, text)
 
 -- Client facing errors. Whenever we get an error, we return additional
 -- information in this format.
-newtype ApiError = ApiError {apiErrrorMessage :: Text}
+newtype ApiError = ApiError {apiErrorMessage :: Text}
   deriving (Show)
 
 instance ToJSON ApiError where
   toJSON (ApiError msg) = object ["message" .= msg]
+
+mkApiError :: Text -> ApiError
+mkApiError = ApiError
 
 -- How incoming JSON will be parsed to our internal CreateTodoInput type
 instance FromJSON CreateTodoInput where
@@ -50,17 +53,18 @@ instance ToJSON Todo where
         "done" .= todoToJsonDone
       ]
 
-sendError :: Text -> Status -> ActionM ()
-sendError message responseStatus = do
-  setHeader "Content-Type" "application/json"
-  status responseStatus
-  text $ decodeUtf8 $ encode $ ApiError message
+-- TODO/MAYBE: a) is there a 'Status' for all 400 and 500 codes?
+-- b) create data type with all errors that we want to return and use that type
+-- instead. (e.g. 400, 404, 500, ..?)
+sendError :: ApiError -> Status -> ActionM ()
+sendError x y = do
+  status y
+  json x
 
-sendSuccess :: Text -> ActionM ()
-sendSuccess message = do
-  setHeader "Content-Type" "application/json"
+sendSuccess :: ToJSON a => a -> ActionM ()
+sendSuccess x = do
   status status200
-  text message
+  json x
 
 -- TODO: why is this signature not working?
 -- allowCors :: Middleware
@@ -88,29 +92,29 @@ mkApp conn =
     -- GET all todos
     get "/todos" $ do
       todos <- liftIO (getTodos conn)
-      sendSuccess (decodeUtf8 $ encode todos)
+      sendSuccess todos
 
     -- GET one todo
     get "/todos/:id" $ do
       unparsedId <- param "id"
       case decimal unparsedId of
-        Left err -> sendError (pack err) status400
+        Left err -> sendError (mkApiError $ pack err) status400
         Right (parsedId, _rest) -> do
           listWithTodo <- liftIO (getTodoById conn parsedId)
           case listToMaybe listWithTodo of
-            Just todo -> sendSuccess $ decodeUtf8 $ encode todo
-            Nothing -> sendError "not found" status404
+            Just todo -> sendSuccess todo
+            Nothing -> sendError (mkApiError "not found") status404
 
     -- DELETE one todo
     delete "/todos/:id" $ do
       unparsedId <- param "id"
       case decimal unparsedId of
-        Left err -> sendError (pack err) status400
+        Left err -> sendError (mkApiError $ pack err) status400
         Right (parsedId, _rest) -> do
           deletedRowsCount <- liftIO (deleteTodo conn parsedId)
           if deletedRowsCount == 1
             then sendSuccess $ decodeUtf8 $ encode $ object ["message" .= ("ok" :: Text)]
-            else sendError "not found" status404
+            else sendError (mkApiError "not found") status404
 
     -- CREATE one todo
     post "/todos" $ do
@@ -119,24 +123,24 @@ mkApp conn =
         Just createTodoInput -> do
           listWithCreatedTodo <- liftIO (createTodo conn createTodoInput)
           case listToMaybe listWithCreatedTodo of
-            Just createdTodo -> sendSuccess $ decodeUtf8 $ encode createdTodo
-            Nothing -> sendError "should never happen. creating a todo returned an empty list" status500
-        Nothing -> sendError "invalid input" status400
+            Just createdTodo -> sendSuccess createdTodo
+            Nothing -> sendError (mkApiError "should never happen. creating a todo returned an empty list") status500
+        Nothing -> sendError (mkApiError "invalid input") status400
 
     -- UPDATE one todo
     patch "/todos/:id" $ do
       unparsedIdFromPath <- param "id"
       case decimal unparsedIdFromPath of
-        Left err -> sendError (pack err) status400
+        Left err -> sendError (mkApiError $ pack err) status400
         Right (idOfToBeUpdatedTodo, _rest) -> do
           unparsedJson <- body
           case decode unparsedJson :: Maybe UpdateTodoInput of
             Just updateTodoInput -> do
               if idOfToBeUpdatedTodo /= updateTodoInputId updateTodoInput
-                then sendError "id of payload and path did not match" status400
+                then sendError (mkApiError "id of payload and path did not match") status400
                 else do
                   updatedTodo <- liftIO (updateTodoById conn updateTodoInput)
                   case listToMaybe updatedTodo of
-                    Just todo -> sendSuccess $ decodeUtf8 $ encode todo
-                    Nothing -> sendError "not found" status404
-            Nothing -> sendError "invalid input" status400
+                    Just todo -> sendSuccess todo
+                    Nothing -> sendError (mkApiError "not found") status404
+            Nothing -> sendError (mkApiError "invalid input") status400
